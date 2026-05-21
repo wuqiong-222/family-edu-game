@@ -73,6 +73,7 @@ c.execute('''CREATE TABLE IF NOT EXISTS submissions
               timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
 conn.commit()
 
+# 【关键修复】save_submission 里的字段名，和 all_final_data 里的字段名必须完全一致
 def save_submission(data):
     c.execute("INSERT INTO submissions (experiment_id, real_style, pre_questionnaire, game_records, after_questionnaire) VALUES (?, ?, ?, ?, ?)",
               (data["基础信息"]["实验编号"],
@@ -221,10 +222,9 @@ class GameData:
         self.cur_child_talk = ""
         self.cur_conflict = ""
 
-        # 新增：保存原始数据 + 权威型数据
+        # 保存原始风格数据（防止被覆盖）
         self.origin_style = ""
         self.origin_records = []
-        self.balanced_records = []
 
     def reset_game(self):
         self.focus = 60
@@ -501,13 +501,11 @@ else:
                            format_func=lambda x: ["非常不同意", "不同意", "一般", "同意", "非常同意"][x-1])
             answers.append(ans)
 
-        # 导出所有数据：原始 + 权威型
+        # 【关键修复】字段名统一，和 save_submission 里的完全一致
         all_final_data = {
-            "基础信息":{"实验编号":user.participant_id,"判定教养风格":STYLE_NAMES[user.origin_style]},
+            "基础信息":{"实验编号":user.participant_id,"判定教养风格":user.real_style},
             "前置问卷作答":user.pre_questionnaire,
-            "原始风格体验数据":user.origin_records,
-            "权威型额外体验数据":user.balanced_records if user.balanced_records else [],
-            "本次最终展示数据":user.game_records,
+            "游戏全程操作数据":user.game_records,  # 这里必须叫这个名字！
             "后置问卷作答":answers
         }
         st.divider()
@@ -515,8 +513,8 @@ else:
             user.after_questionnaire = answers
             json_all = json.dumps(all_final_data, ensure_ascii=False, indent=3)
             save_submission(all_final_data)
-            st.success("✅ 所有数据已提交保存")
-            st.download_button("💾 下载全套数据", json_all,
+            st.success("✅ 数据提交完成！管理员可在后台查看")
+            st.download_button("💾 下载数据文件", json_all,
                                file_name=f"全套数据_{user.participant_id}.json",
                                mime="application/json", use_container_width=True)
 
