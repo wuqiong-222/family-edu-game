@@ -1,25 +1,8 @@
 """配置、常量、题库与对话库。"""
 
-import os
+# ======================= 已彻底删除所有 pygame 相关代码 =======================
 
-import pygame
-
-pygame.init()
-SCREEN_W, SCREEN_H = 480, 850
-screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
-pygame.display.set_caption("家庭教育严肃游戏APP原型")
-clock = pygame.time.Clock()
-
-FONT_PATH = os.path.join(os.path.dirname(__file__), "msyh.ttc")
-if os.path.exists(FONT_PATH):
-    FONT_S = pygame.font.Font(FONT_PATH, 20)
-    FONT_M = pygame.font.Font(FONT_PATH, 24)
-    FONT_L = pygame.font.Font(FONT_PATH, 30)
-else:
-    FONT_S = pygame.font.SysFont("microsoftyahei", 20)
-    FONT_M = pygame.font.SysFont("microsoftyahei", 24)
-    FONT_L = pygame.font.SysFont("microsoftyahei", 30)
-
+# 颜色定义（保留，因为网页版也会用到）
 WHITE = (255, 255, 255)
 BLACK = (20, 20, 20)
 GRAY = (120, 120, 120)
@@ -32,6 +15,7 @@ STRICT_BG = (252, 217, 217)
 GENTLE_BG = (218, 245, 225)
 BALANCE_BG = (217, 234, 252)
 
+# 教养方式名称与描述
 STYLE_NAMES = {"strict": "专制型", "gentle": "放任型", "balanced": "权威型"}
 STYLE_DESCRIPTIONS = {
     "strict": "专制型：高要求、低包容，喜欢直接批评、强调规则和服从",
@@ -39,6 +23,7 @@ STYLE_DESCRIPTIONS = {
     "balanced": "权威型：适中要求、适中包容，先肯定再指出、引导改进",
 }
 
+# LLM 配置
 USE_LLM = True
 LLM_PROVIDER = "zhipu"
 LLM_URL_ZHIPU = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
@@ -47,6 +32,7 @@ ZHIPU_API_KEY = "9b3679a915614c8c8e342390bbe798fa.9CkuesKtmmNyhTtF"
 LLM_TIMEOUT_SECONDS = 10
 LLM_MAX_RETRY = 2
 
+# 行为中文映射
 ACTION_CN = {
     "homework": "做作业",
     "rest": "休息",
@@ -54,6 +40,7 @@ ACTION_CN = {
     "cant_solve": "题目不会",
 }
 
+# 问卷题库
 QUESTIONNAIRE = [
     ("孩子作业出错时，我会直接严厉批评，很少耐心讲解", "strict"),
     ("辅导作业时，我要求孩子必须完全听从我的安排，不允许反驳", "strict"),
@@ -72,6 +59,7 @@ QUESTIONNAIRE = [
     ("即使孩子的作业习惯不太合理（如坐姿不端正、字迹潦草），我仅口头提醒，不会强制纠正", "gentle"),
 ]
 
+# 体验后问卷
 AFTER_SURVEY_QUESTIONS = [
     "本次模拟中，我能顺利代入孩子视角，感受被家长辅导作业的状态",
     "游戏呈现的亲子互动、情绪反馈，和现实家庭场景贴合",
@@ -85,7 +73,7 @@ AFTER_SURVEY_QUESTIONS = [
     "本次沉浸式模拟体验，对家长共情教育有实际参考价值",
 ]
 
-# 对话库与数值规则（与 prototype 保持一致）
+# 对话库
 DIALOGUE_PAIRS = {
     "strict": {
         "homework": [
@@ -184,20 +172,17 @@ DIALOGUE_PAIRS = {
 
 DIALOGUES = {s: {a: [p for p, c in pairs] for a, pairs in styles.items()} for s, styles in DIALOGUE_PAIRS.items()}
 CHILD_RESPONSES = {s: {a: [c for p, c in pairs] for a, pairs in styles.items()} for s, styles in DIALOGUE_PAIRS.items()}
+
 HOMEWORK_CHILD_RESPONSES = {
     "strict": {"encourage": ["知道了，我会认真写。"], "guide": ["我在写，我会保持速度。"]},
     "gentle": {"encourage": ["谢谢鼓励，我继续写。"], "guide": ["我会按步骤继续写。"]},
     "balanced": {"encourage": ["我在写，会按节奏完成。"], "guide": ["我继续做这道题。"]},
 }
 
+# 数值变化规则
 DELTA = {
-    # 做作业：提高通关效率，保持轻度心理消耗，家长耐心缓慢消耗
     "homework": {"focus": +4, "mood": -2, "progress": +10, "patience": {"strict": 0, "gentle": +3, "balanced": +3}},
-    # 休息：情绪明显恢复，专注适度下降；专制型更难接受休息
     "rest": {"focus": -5, "mood": +12, "progress": 0, "patience": {"strict": -10, "gentle": 0, "balanced": -3}},
-    # 开小差：专注大幅下降，情绪短暂放松；专制型惩罚最重
     "distract": {"focus": -14, "mood": +4, "progress": 0, "patience": {"strict": -15, "gentle": -8, "balanced": -11}},
-    # 题目不会：挫败感显著，专注下降，耐心合理下降
     "cant_solve": {"focus": -7, "mood": -12, "progress": 0, "patience": {"strict": -8, "gentle": -4, "balanced": -6}},
 }
-
