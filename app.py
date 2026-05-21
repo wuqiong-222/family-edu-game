@@ -244,56 +244,64 @@ if "user_data" not in st.session_state:
     st.session_state.user_data = GameData()
 if "page_flag" not in st.session_state:
     st.session_state.page_flag = "input_id"
+if "admin_login" not in st.session_state:
+    st.session_state.admin_login = False
 
 user = st.session_state.user_data
 page = st.session_state.page_flag
 
-# 管理员后台入口（仅你能访问）
-query_params = st.query_params
-if query_params.get("admin", ["0"])[0] == "1":
-    st.sidebar.title("🔐 管理员后台")
-    password = st.sidebar.text_input("请输入管理员密码", type="password")
-    if password == "123456": # 建议改成你自己的密码
-        st.title("📊 实验数据管理后台")
-        st.success("✅ 管理员验证成功")
+# 侧边栏管理员入口
+with st.sidebar:
+    st.title("系统菜单")
+    menu_choice = st.radio("功能选择", ["参与实验", "数据管理"])
 
-        # 读取所有数据
+    if menu_choice == "数据管理":
+        if not st.session_state.admin_login:
+            pwd = st.text_input("管理员密码", type="password")
+            if st.button("登录验证"):
+                if pwd == "123456":
+                    st.session_state.admin_login = True
+                    st.rerun()
+                else:
+                    st.error("密码错误")
+        else:
+            st.success("已登录管理员")
+            if st.button("退出登录"):
+                st.session_state.admin_login = False
+                st.rerun()
+
+# 数据管理页面
+if menu_choice == "数据管理":
+    if st.session_state.admin_login:
+        st.title("📊 实验数据管理后台")
         df = pd.read_sql("SELECT id, experiment_id, real_style, timestamp FROM submissions", conn)
-        st.subheader("所有提交记录")
         st.dataframe(df, use_container_width=True)
 
-        # 查看单条详情
         if not df.empty:
-            selected_id = st.selectbox("选择提交ID查看详情", df["id"].tolist())
-            if selected_id:
-                row = df[df["id"] == selected_id].iloc[0]
-                st.subheader(f"提交详情 - ID: {selected_id}")
-                st.write(f"实验编号: {row['experiment_id']}")
-                st.write(f"判定风格: {row['real_style']}")
-                st.write(f"提交时间: {row['timestamp']}")
+            sel_id = st.selectbox("选择ID查看详情", df["id"].tolist())
+            row = df[df["id"] == sel_id].iloc[0]
+            st.subheader(f"提交详情 ID：{sel_id}")
+            st.write(f"实验编号：{row['experiment_id']}")
+            st.write(f"教养风格：{row['real_style']}")
+            st.write(f"提交时间：{row['timestamp']}")
 
-                if st.button("查看完整数据"):
-                    # 修复KeyError，直接从数据库读取完整行
-                    full_row = pd.read_sql(f"SELECT * FROM submissions WHERE id = {selected_id}", conn).iloc[0]
-                    st.json({
-                        "前置问卷": json.loads(full_row["pre_questionnaire"]),
-                        "游戏记录": json.loads(full_row["game_records"]),
-                        "后置问卷": json.loads(full_row["after_questionnaire"])
-                    })
+            if st.button("查看完整数据"):
+                full_data = pd.read_sql(f"SELECT * FROM submissions WHERE id={sel_id}", conn).iloc[0]
+                st.json({
+                    "前置问卷": json.loads(full_data["pre_questionnaire"]),
+                    "游戏记录": json.loads(full_data["game_records"]),
+                    "后置问卷": json.loads(full_data["after_questionnaire"])
+                })
 
-        # 导出全部数据
-        st.download_button(
-            "📤 导出全部数据为CSV",
-            pd.read_sql("SELECT * FROM submissions", conn).to_csv(index=False, encoding="utf-8-sig"),
-            "all_experiment_data.csv",
-            "text/csv",
-            use_container_width=True
-        )
+        # 批量导出
+        all_data = pd.read_sql("SELECT * FROM submissions", conn)
+        st.download_button("导出全部CSV", all_data.to_csv(index=False, encoding="utf-8-sig"),
+                           "全部实验数据.csv", "text/csv")
     else:
-        st.warning("请输入正确的管理员密码")
+        st.info("请输入密码登录后方可查看数据")
 
+# 玩家实验流程
 else:
-    # 正常游戏流程（玩家视角）
     if page == "input_id":
         st.title("👨‍👩‍👧 家庭教育视角互换实验")
         st.divider()
@@ -432,6 +440,3 @@ else:
             st.download_button("💾 下载数据文件", json_all,
                                file_name=f"全套数据_{user.participant_id}.json",
                                mime="application/json", use_container_width=True)
-
-# 关闭数据库连接（可选）
-# conn.close()
