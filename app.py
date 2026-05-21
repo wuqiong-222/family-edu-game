@@ -387,11 +387,12 @@ elif page == "after_survey":
                            file_name=f"全套数据_{user.participant_id}.json",
                            mime="application/json", use_container_width=True)
 
-# 管理员后台
-if st.experimental_get_query_params().get("admin", ["0"])[0] == "1":
+# 管理员后台（使用新版API）
+query_params = st.query_params
+if query_params.get("admin", ["0"])[0] == "1":
     st.sidebar.title("管理员后台")
     password = st.sidebar.text_input("输入管理员密码", type="password")
-    if password == "123456": # 改成你自己的密码
+    if password == "123456": # 你可以改成自己的密码
         st.title("📊 所有提交数据")
         df = pd.read_sql_query("SELECT * FROM submissions", conn)
         st.dataframe(df[["id", "experiment_id", "real_style", "timestamp"]])
