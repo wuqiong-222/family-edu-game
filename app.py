@@ -5,18 +5,14 @@ import requests
 from datetime import datetime
 import pandas as pd
 
-# -------------------------- 配置 --------------------------
+# 页面配置
 st.set_page_config(page_title="家庭教育实验", layout="wide")
-USE_LLM = True
-LLM_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-LLM_MODEL = "glm-4-flash"
-API_KEY = "9b3679a915614c8c8e342390bbe798fa.9CkuesKtmmNyhTtF"
-LLM_TIMEOUT = 10
 
-# -------------------------- 常量 --------------------------
+# 常量
 STYLE_NAMES = {"strict": "专制型", "gentle": "放任型", "balanced": "权威型"}
 ACTION_CN = {"homework": "做作业", "rest": "休息", "distract": "开小差", "cant_solve": "题目不会"}
 
+# 前置问卷
 QUESTIONNAIRE = [
     ("孩子作业出错时，我会直接严厉批评，很少耐心讲解", "strict"),
     ("辅导作业时，我要求孩子必须完全听从我的安排，不允许反驳", "strict"),
@@ -35,6 +31,7 @@ QUESTIONNAIRE = [
     ("习惯不合理仅口头提醒", "gentle"),
 ]
 
+# 后置问卷
 AFTER_SURVEY_QUESTIONS = [
     "我能顺利代入孩子视角感受状态",
     "游戏场景和现实家庭辅导贴合",
@@ -48,6 +45,7 @@ AFTER_SURVEY_QUESTIONS = [
     "对亲子教育具备参考价值"
 ]
 
+# 对话兜底
 DIALOGUE_PAIRS = {
     "strict": {
         "homework": [("抓紧认真写，不许磨蹭", "知道啦，我尽量做好")],
@@ -72,6 +70,7 @@ DIALOGUE_PAIRS = {
     }
 }
 
+# 状态规则
 DELTA = {
     "homework": {"focus": 5, "mood": -3, "progress": 10, "patience": {"strict": 2, "gentle": 3, "balanced": 2}},
     "rest": {"focus": -3, "mood": 8, "progress": 0, "patience": {"strict": -5, "gentle": 0, "balanced": -2}},
@@ -79,7 +78,13 @@ DELTA = {
     "cant_solve": {"focus": -6, "mood": -8, "progress": 0, "patience": {"strict": -6, "gentle": -2, "balanced": -4}},
 }
 
-# -------------------------- AI与兜底对话 --------------------------
+# AI配置
+USE_LLM = True
+LLM_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+LLM_MODEL = "glm-4-flash"
+API_KEY = "9b3679a915614c8c8e342390bbe798fa.9CkuesKtmmNyhTtF"
+
+# AI对话生成
 def generate_ai_dialog(style, action, is_conflict):
     style_desc = {"strict":"专制型家长，严格强势","gentle":"放任型家长，宽松包容","balanced":"权威型家长，理性引导"}
     action_desc = {"homework":"孩子正在写作业","rest":"孩子想要休息","distract":"孩子写作业开小差","cant_solve":"孩子遇到不会做的题目"}
@@ -88,17 +93,12 @@ def generate_ai_dialog(style, action, is_conflict):
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
     data = {"model": LLM_MODEL, "messages": [{"role": "user", "content": prompt}]}
     try:
-        resp = requests.post(LLM_URL, json=data, timeout=LLM_TIMEOUT)
+        resp = requests.post(LLM_URL, json=data, timeout=10)
         return eval(resp.json()["choices"][0]["message"]["content"])
     except:
         return None
 
-def get_local_dialog(style, action, is_conflict):
-    key = "conflict" if is_conflict else action
-    p, c = random.choice(DIALOGUE_PAIRS[style][key])
-    return {"parent": p, "child": c, "source": "规则兜底"}
-
-# -------------------------- 游戏数据 --------------------------
+# 游戏数据类
 class GameData:
     def __init__(self):
         self.participant_id = ""
@@ -142,9 +142,12 @@ class GameData:
         self.progress = max(0, min(100, self.progress + d["progress"]))
         self.cur_conflict = self.get_conflict_status()
 
+        # 优先AI，失败兜底
         dialog = generate_ai_dialog(self.parent_style, act_key, bool(self.cur_conflict)) if USE_LLM else None
         if dialog is None:
-            dialog = get_local_dialog(self.parent_style, act_key, bool(self.cur_conflict))
+            key = "conflict" if self.cur_conflict else act_key
+            p, c = random.choice(DIALOGUE_PAIRS[self.parent_style][key])
+            dialog = {"parent": p, "child": c, "source": "规则兜底"}
 
         self.cur_parent_talk = dialog["parent"]
         self.cur_child_talk = dialog["child"]
@@ -161,7 +164,7 @@ class GameData:
             "dialog_source": self.dialog_source
         })
 
-# -------------------------- 页面主逻辑 --------------------------
+# 页面主逻辑
 def main():
     if "user_data" not in st.session_state:
         st.session_state.user_data = GameData()
