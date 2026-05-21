@@ -6,7 +6,7 @@ from datetime import datetime
 import pandas as pd
 import sqlite3
 
-# 【核心修复】页面配置 + 布局调整
+# 【关键】页面配置：设置为wide模式，减少顶部空白
 st.set_page_config(
     page_title="家庭教育视角互换实验",
     layout="wide",
@@ -14,51 +14,76 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 【核心修复】全局CSS，解决顶部遮挡和手机适配
+# 【关键】全局CSS修复，解决所有显示问题
 st.markdown("""
 <style>
-/* 1. 移除顶部空白，解决遮挡问题 */
+/* 1. 彻底解决顶部空白，避免标题被遮挡 */
 .block-container {
-    padding-top: 1rem !important;
+    padding-top: 0.5rem !important;
     padding-bottom: 1rem !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
     max-width: 100% !important;
 }
 
-/* 2. 移动端适配：文字大小、元素宽度 */
+/* 2. 标题文字强制完整显示，不截断 */
+h1, h2, h3, h4, h5, h6 {
+    white-space: normal !important;
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+}
+
+/* 3. 手机端适配：文字大小、单选按钮换行 */
 @media (max-width: 768px) {
-    .stMarkdown {
+    /* 整体文字缩小 */
+    .stMarkdown, p, li {
         font-size: 14px !important;
     }
-    h1, h2, h3, h4, h5, h6 {
-        font-size: 18px !important;
+    /* 标题缩小 */
+    h1 { font-size: 20px !important; }
+    h2 { font-size: 18px !important; }
+    h3 { font-size: 16px !important; }
+    /* 单选按钮强制换行，不挤在一起 */
+    .stRadio > div {
+        display: flex;
+        flex-direction: column !important;
+        gap: 8px !important;
     }
+    .stRadio label {
+        font-size: 14px !important;
+        white-space: normal !important;
+    }
+    /* 按钮文字完整显示 */
+    .stButton > button {
+        font-size: 14px !important;
+        padding: 0.5rem !important;
+        white-space: normal !important;
+    }
+    /* 输入框宽度100%，不被挤压 */
+    .stTextInput, .stSelectbox, .stNumberInput {
+        width: 100% !important;
+    }
+    /* 进度条适配 */
+    .stProgress > div > div > div > div {
+        height: 8px !important;
+    }
+    /* 指标卡片文字适配 */
     .stMetric label, .stMetric .stMetric-value {
         font-size: 14px !important;
     }
+}
+
+/* 4. 桌面端单选按钮间距优化 */
+@media (min-width: 769px) {
     .stRadio > div {
-        gap: 4px !important;
-    }
-    .stButton > button {
-        font-size: 14px !important;
-        padding: 0.4rem !important;
-    }
-    /* 修复手机端输入框和按钮被遮挡 */
-    .stTextInput, .stButton, .stSelectbox {
-        width: 100% !important;
-        max-width: 100% !important;
+        gap: 16px !important;
     }
 }
 
-/* 3. 美化进度条和卡片 */
-.stProgress > div > div > div > div {
-    height: 10px !important;
-    border-radius: 5px;
-}
-.stMetric {
-    background: #fff;
-    border-radius: 8px;
-    padding: 10px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+/* 5. 强制所有文本自动换行 */
+* {
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
 }
 </style>
 """, unsafe_allow_html=True)
