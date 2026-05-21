@@ -28,15 +28,21 @@ def get_db():
         pid TEXT, style TEXT,
         pre TEXT, game TEXT, after TEXT, time TEXT
     )""")
+    db.commit()
     return db
 
 db = get_db()
 
 # 保存数据
 def save_data(pid, style, pre, game, after):
-    db.execute("INSERT INTO results (pid, style, pre, game, after, time) VALUES (?,?,?,?,?,?)",
-               [pid, style, json.dumps(pre), json.dumps(game), json.dumps(after), datetime.now().strftime("%Y-%m-%d %H:%M")])
-    db.commit()
+    try:
+        db.execute("INSERT INTO results (pid, style, pre, game, after, time) VALUES (?,?,?,?,?,?)",
+                   [pid, style, json.dumps(pre), json.dumps(game), json.dumps(after), datetime.now().strftime("%Y-%m-%d %H:%M")])
+        db.commit()
+        return True
+    except Exception as e:
+        st.error(f"数据保存失败: {e}")
+        return False
 
 # 管理员查看所有数据（你本地打开就能看）
 def admin_page():
@@ -176,7 +182,7 @@ elif d["page"]==2:
         if d["conflict"]: st.error(f"冲突：{d['conflict']}")
 
     act = st.radio("行为",["做作业","休息","开小差","题目不会"],horizontal=True)
-    act_k = {"做作业":"homework","rest":"休息","开小差":"distract","题目不会":"cant_solve"}[act]
+    act_k = {"做作业":"homework","休息":"rest","开小差":"distract","题目不会":"cant_solve"}[act]
     if st.button("执行"):
         df,dm,dp,dpt = DELTA[act_k].values()
         dpt_val = dpt[d["s_key"][0]]
@@ -218,6 +224,10 @@ elif d["page"]==3:
         after.append(st.radio(f"{i+1}.{q}",[1,2,3,4,5],horizontal=True,key=f"after{i}"))
     if st.button("提交完成"):
         d["after"] = after
-        save_data(d["pid"],d["style"],d["pre"],d["game"],d["after"])
-        st.success("提交成功！数据已保存到管理员本地")
-        st.stop()
+        # 保存数据并提示
+        if save_data(d["pid"],d["style"],d["pre"],d["game"],d["after"]):
+            st.success("提交成功！数据已保存到管理员本地")
+            # 强制刷新，让文件生成
+            st.rerun()
+        else:
+            st.error("数据提交失败，请重试")
