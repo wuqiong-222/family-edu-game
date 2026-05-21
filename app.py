@@ -6,6 +6,7 @@ from datetime import datetime
 import pandas as pd
 import sqlite3
 
+# 页面配置
 st.set_page_config(
     page_title="家庭教育视角互换实验",
     layout="wide",
@@ -13,6 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# 彻底解决顶部遮挡CSS
 st.markdown("""
 <style>
 header,
@@ -24,6 +26,7 @@ div[data-testid="stDecoration"],
     height: 0 !important;
     visibility: hidden !important;
 }
+
 .appview-container .main .block-container,
 div[data-testid="stMainBlockContainer"] {
     padding-top: 0rem !important;
@@ -32,15 +35,19 @@ div[data-testid="stMainBlockContainer"] {
     padding-bottom: 1rem !important;
     max-width: 100% !important;
 }
+
+.css-1d391kg,
 div[data-testid="stSidebar"] {
     padding-top: 0rem !important;
 }
+
 h1, h2, h3 {
     white-space: nowrap !important;
     overflow: visible !important;
     margin-top: 0 !important;
     padding-top: 0 !important;
 }
+
 @media (max-width: 768px) {
     h1 { font-size: 20px !important; }
     h2 { font-size: 18px !important; }
@@ -53,6 +60,7 @@ h1, h2, h3 {
 </style>
 """, unsafe_allow_html=True)
 
+# 数据库初始化
 conn = sqlite3.connect('family_edu_data.db', check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS submissions
@@ -74,6 +82,7 @@ def save_submission(data):
                json.dumps(data["后置问卷作答"])))
     conn.commit()
 
+# AI配置
 USE_LLM = True
 LLM_PROVIDER = "zhipu"
 LLM_URL_ZHIPU = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
@@ -82,6 +91,7 @@ ZHIPU_API_KEY = "9b3679a915614c8c8e342390bbe798fa.9CkuesKtmmNyhTtF"
 LLM_TIMEOUT_SECONDS = 10
 LLM_MAX_RETRY = 2
 
+# 基础常量
 STYLE_NAMES = {"strict": "专制型", "gentle": "放任型", "balanced": "权威型"}
 ACTION_CN = {
     "homework": "做作业",
@@ -156,14 +166,35 @@ def ai_generate_dialogue(style, action, is_conflict):
     style_text = STYLE_NAMES[style]
     action_text = ACTION_CN[action]
     conflict_text = "出现冲突" if is_conflict else "正常沟通"
-    prompt = f"""你是{style_text}家长，孩子正在{action_text}，当前{conflict_text}。请生成一句家长一句孩子。"""
-    headers = {"Authorization": f"Bearer {ZHIPU_API_KEY}", "Content-Type": "application/json"}
-    data = {"model": LLM_MODEL_ZHIPU, "messages": [{"role": "user", "content": prompt}], "temperature": 0.7}
+
+    prompt = f"""你是{style_text}家长，孩子正在{action_text}，当前{conflict_text}。
+请生成一句家长的话和一句孩子回应，简短自然贴合日常对话。
+只返回JSON格式，不要其他内容：
+{{"parent":"","child":""}}"""
+
+    headers = {
+        "Authorization": f"Bearer {ZHIPU_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "model": LLM_MODEL_ZHIPU,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.7
+    }
+
     for _ in range(LLM_MAX_RETRY):
         try:
-            res = requests.post(LLM_URL_ZHIPU, headers=headers, json=data, timeout=LLM_TIMEOUT_SECONDS)
-            if res.status_code == 200:
-                return json.loads(res.json()["choices"][0]["message"]["content"].strip())
+            resp = requests.post(
+                LLM_URL_ZHIPU,
+                headers=headers,
+                json=data,
+                timeout=LLM_TIMEOUT_SECONDS
+            )
+            if resp.status_code == 200:
+                res_json = resp.json()
+                content = res_json["choices"][0]["message"]["content"]
+                return json.loads(content.strip())
         except:
             continue
     return None
@@ -213,15 +244,31 @@ class GameData:
         self.mood = max(0, min(100, self.mood + d["mood"]))
         self.patience = max(0, min(100, self.patience + d["patience"][self.parent_style]))
         self.progress = max(0, min(100, self.progress + d["progress"]))
+
         self.cur_conflict = self.get_conflict_status()
         conflict_flag = bool(self.cur_conflict)
-        dialog = ai_generate_dialogue(self.parent_style, act_key, conflict_flag) if USE_LLM else None
-        if not dialog: dialog = get_local_dialogue(self.parent_style, act_key, conflict_flag)
+
+        dialog = None
+        if USE_LLM and LLM_PROVIDER == "zhipu":
+            dialog = ai_generate_dialogue(self.parent_style, act_key, conflict_flag)
+
+        if not dialog:
+            dialog = get_local_dialogue(self.parent_style, act_key, conflict_flag)
+
         self.cur_parent_talk = dialog["parent"]
         self.cur_child_talk = dialog["child"]
-        record = {"time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "action": ACTION_CN[act_key],
-                  "focus": self.focus, "mood": self.mood, "progress": self.progress, "patience": self.patience,
-                  "conflict": self.cur_conflict, "parent_words": dialog["parent"], "child_words": dialog["child"]}
+
+        record = {
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "action": ACTION_CN[act_key],
+            "focus": self.focus,
+            "mood": self.mood,
+            "progress": self.progress,
+            "patience": self.patience,
+            "conflict": self.cur_conflict,
+            "parent_words": dialog["parent"],
+            "child_words": dialog["child"]
+        }
         self.game_records.append(record)
 
 if "user_data" not in st.session_state:
@@ -234,9 +281,11 @@ if "admin_login" not in st.session_state:
 user = st.session_state.user_data
 page = st.session_state.page_flag
 
+# 侧边栏管理员入口
 with st.sidebar:
     st.title("系统菜单")
     menu_choice = st.radio("功能选择", ["参与实验", "数据管理"])
+
     if menu_choice == "数据管理":
         if not st.session_state.admin_login:
             pwd = st.text_input("管理员密码", type="password")
@@ -252,11 +301,13 @@ with st.sidebar:
                 st.session_state.admin_login = False
                 st.rerun()
 
+# 数据管理页面
 if menu_choice == "数据管理":
     if st.session_state.admin_login:
         st.title("📊 实验数据管理后台")
         df = pd.read_sql("SELECT id, experiment_id, real_style, timestamp FROM submissions", conn)
         st.dataframe(df, use_container_width=True)
+
         if not df.empty:
             sel_id = st.selectbox("选择ID查看详情", df["id"].tolist())
             row = df[df["id"] == sel_id].iloc[0]
@@ -264,20 +315,28 @@ if menu_choice == "数据管理":
             st.write(f"实验编号：{row['experiment_id']}")
             st.write(f"教养风格：{row['real_style']}")
             st.write(f"提交时间：{row['timestamp']}")
+
             if st.button("查看完整数据"):
-                full = pd.read_sql(f"SELECT * FROM submissions WHERE id={sel_id}", conn).iloc[0]
-                st.json({"前置问卷": json.loads(full["pre_questionnaire"]),
-                         "游戏记录": json.loads(full["game_records"]),
-                         "后置问卷": json.loads(full["after_questionnaire"])})
+                full_data = pd.read_sql(f"SELECT * FROM submissions WHERE id={sel_id}", conn).iloc[0]
+                st.json({
+                    "前置问卷": json.loads(full_data["pre_questionnaire"]),
+                    "游戏记录": json.loads(full_data["game_records"]),
+                    "后置问卷": json.loads(full_data["after_questionnaire"])
+                })
+
         all_data = pd.read_sql("SELECT * FROM submissions", conn)
-        st.download_button("导出全部CSV", all_data.to_csv(index=False, encoding="utf-8-sig"), "全部实验数据.csv")
+        st.download_button("导出全部CSV", all_data.to_csv(index=False, encoding="utf-8-sig"),
+                           "全部实验数据.csv", "text/csv")
     else:
         st.info("请输入密码登录后方可查看数据")
 
+# 玩家实验流程
 else:
     if page == "input_id":
         st.title("👨‍👩‍👧 家庭教育视角互换实验")
+        st.divider()
         pid = st.text_input("填写实验编号", placeholder="示例：P05")
+        st.divider()
         if st.button("进入测评问卷", disabled=not pid, use_container_width=True):
             user.participant_id = pid
             st.session_state.page_flag = "pre_ques"
@@ -290,11 +349,13 @@ else:
             opt = st.radio(f"{idx+1}. {que}", [1,2,3,4], horizontal=True,
                            format_func=lambda x:["完全不符合","不太符合","比较符合","完全符合"][x-1])
             ans_list.append(opt)
+        st.divider()
         if st.button("提交开启模拟", use_container_width=True, type="primary"):
-            score = {"strict":0,"balanced":0,"gentle":0}
+            score_dict = {"strict":0,"balanced":0,"gentle":0}
             for a, (_, dim) in zip(ans_list, QUESTIONNAIRE):
-                score[dim] += a
-            final_style = max(score, key=score.get)
+                score_dict[dim] += a
+            sort_res = sorted(score_dict.items(), key=lambda x:x[1], reverse=True)
+            final_style = "balanced" if sort_res[1][1] >= sort_res[0][1]-1 else sort_res[0][0]
             user.parent_style = final_style
             user.real_style = STYLE_NAMES[final_style]
             user.pre_questionnaire = ans_list
@@ -344,76 +405,95 @@ else:
 
     elif page == "reflection":
         st.title("📊 体验反思报告")
-        style_name = user.real_style
-        total_steps = len(user.game_records)
-        conflict_list = [r["conflict"] for r in user.game_records if r["conflict"]]
-        conflict_count = len(conflict_list)
+        st.info(f"编号：{user.participant_id}")
+        st.divider()
+        if user.game_records:
+            df = pd.DataFrame(user.game_records)
+            st.subheader("📈 状态变化趋势")
+            st.line_chart(df, y=["focus","mood","progress","patience"], use_container_width=True)
+
+        st.subheader("📌 体验数据概况")
+        col1, col2, col3 = st.columns(3)
         min_focus = min([60] + [x['focus'] for x in user.game_records])
         min_mood = min([70] + [x['mood'] for x in user.game_records])
+        with col1:
+            st.metric("互动总次数", len(user.game_records))
+        with col2:
+            st.metric("最低专注度", f"{min_focus}%")
+        with col3:
+            st.metric("最低情绪值", f"{min_mood}%")
+
+        st.subheader("⚠️ 相处冲突情况")
+        conflict_list = [r["conflict"] for r in user.game_records if r["conflict"]]
+        if conflict_list:
+            st.bar_chart(pd.Series(conflict_list).value_counts())
+        else:
+            st.write("本次互动过程中没有产生亲子冲突")
+
+        st.subheader("🎯 行为选择分布")
+        action_counts = pd.Series([r["action"] for r in user.game_records]).value_counts()
+        st.bar_chart(action_counts)
+
+        # 温和引导式反思文案
+        st.subheader("💡 个人感悟与教养思考")
+        style_name = user.real_style
+        conflict_count = len(conflict_list)
+        total_interactions = len(user.game_records)
+        conflict_rate = f"{(conflict_count/total_interactions)*100:.1f}%" if total_interactions > 0 else "0%"
 
         st.markdown(f"""
-### 一、你的教养方式判定
-本次模拟你的教养方式：**{style_name}**
+在本次模拟体验里，系统综合测评得出你的日常教养风格偏向**{style_name}**。
 
-### 二、本次模拟关键数据
-- 总互动次数：**{total_steps} 次**
-- 亲子冲突次数：**{conflict_count} 次**
-- 孩子最低专注度：**{min_focus}%**
-- 孩子最低情绪值：**{min_mood}%**
+整场辅导互动共计{total_interactions}次沟通往来，期间出现亲子相处冲突{conflict_count}次，冲突发生比例为{conflict_rate}。孩子全程最低专注度{min_focus}%、最低情绪值{min_mood}%，这些数值直观展现出沟通方式带给孩子的内心影响。
 
-### 三、基于家庭作业互动研究的解读
-根据《Homework Wars》对78个中国家庭的实证研究：
-家长辅导作业时会出现显著情绪变化：愉悦度下降、唤醒度上升、控制感降低。
-研究发现7类高频冲突：知识冲突、学习方法冲突、专注冲突、沟通冲突、规则冲突、时间管理冲突、期望冲突。
+不同教养模式有着各自鲜明的相处特点，我们可以静心感受其中差异：
+- **专制型教养**：习惯以安排管控为主，做事推进速度较快，但容易让孩子内心产生压抑感，无形中增加彼此分歧矛盾。
+- **放任型教养**：给予孩子充分自由空间，孩子心态更为放松平和，不过容易缺少约束引导，学习效率很难稳步提升。
+- **权威型教养**：兼顾规则底线与情感包容，既会帮孩子树立做事标准，也懂得倾听理解情绪，是适配性更高的相处模式。
 
-### 四、教养模式分析
-- **专制型**：高控制、低支持，冲突频繁
-- **放任型**：高支持、低控制，效率偏低
-- **权威型**：高支持+高结构，状态最稳定、冲突最少、长期效果最优
+透过这次换位思考体验，相信你真切感受到孩子面对不同沟通态度时的心境变化。严苛管束容易拉开亲子距离，一味包容也难以助力成长，平衡有度的陪伴沟通，才能更好守护孩子身心与学习共同发展。
 
-### 五、关键结论
-即使正向行为（表扬、鼓励）若带有控制色彩，也会提升冲突概率。
-真正有效的育儿是：**共情回应 + 清晰规则 + 温和坚定**。
-
-### 六、科学育儿建议
-1. 理解孩子认知难度，减少知识冲突
-2. 不用批评、指责、贴标签
-3. 减少攀比与过高期望
-4. 多使用具体表扬、鼓励、引导提问
-5. 温和而坚定，建立权威型教养
+此次体验为日常家庭教育提供参考思路，往后可以结合自身相处习惯，慢慢调整沟通方式，打造舒适和谐的亲子陪伴氛围。
 """)
-
         st.divider()
-        st.subheader("🔁 体验权威型家长模式")
-        st.info("点击下方按钮，直接体验【权威型家长】，无需重新测评！")
-        if st.button("立即体验权威型家长", use_container_width=True, type="primary"):
-            user.parent_style = "balanced"
-            user.real_style = "权威型"
-            user.reset_game()
-            st.session_state.page_flag = "game_run"
-            st.rerun()
-
-        if st.button("填写后置问卷", use_container_width=True):
-            st.session_state.page_flag = "after_survey"
-            st.rerun()
+        # 新增重新体验权威型按钮
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("填写后置问卷", use_container_width=True):
+                st.session_state.page_flag = "after_survey"
+                st.rerun()
+        with col_btn2:
+            if st.button("重新体验权威型家长模式", use_container_width=True):
+                user.parent_style = "balanced"
+                user.real_style = STYLE_NAMES["balanced"]
+                user.reset_game()
+                st.session_state.page_flag = "game_run"
+                st.rerun()
 
     elif page == "after_survey":
         st.title("📋 后置调查问卷")
+        st.divider()
         answers = []
         for idx, que in enumerate(AFTER_SURVEY_QUESTIONS):
             ans = st.radio(f"Q{idx+1}: {que}", [1,2,3,4,5], horizontal=True,
                            format_func=lambda x: ["非常不同意", "不同意", "一般", "同意", "非常同意"][x-1])
             answers.append(ans)
-        if st.button("提交并导出数据", use_container_width=True, type="primary"):
-            all_final_data = {
-                "基础信息":{"实验编号":user.participant_id,"判定教养风格":user.real_style},
-                "前置问卷作答":user.pre_questionnaire,
-                "游戏全程操作数据":user.game_records,
-                "后置问卷作答":answers
-            }
-            save_submission(all_final_data)
-            st.success("✅ 数据提交完成！")
-            st.download_button("💾 下载数据文件", json.dumps(all_final_data, ensure_ascii=False, indent=3),
-                               f"全套数据_{user.participant_id}.json", "application/json", use_container_width=True)
 
+        all_final_data = {
+            "基础信息":{"实验编号":user.participant_id,"判定教养风格":user.real_style},
+            "前置问卷作答":user.pre_questionnaire,
+            "游戏全程操作数据":user.game_records,
+            "后置问卷作答":answers
+        }
+        st.divider()
+        if st.button("提交并导出数据", use_container_width=True, type="primary"):
+            user.after_questionnaire = answers
+            json_all = json.dumps(all_final_data, ensure_ascii=False, indent=3)
+            save_submission(all_final_data)
+            st.success("✅ 数据提交完成！管理员可在后台查看")
+            st.download_button("💾 下载数据文件", json_all,
+                               file_name=f"全套数据_{user.participant_id}.json",
+                               mime="application/json", use_container_width=True)
+
+# 关闭数据库连接
 conn.close()
