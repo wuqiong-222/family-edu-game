@@ -6,7 +6,7 @@ import pandas as pd
 
 st.set_page_config(page_title="家庭教育实验", layout="wide")
 
-# -------------------------- 核心常量 --------------------------
+# -------------------------- 常量 --------------------------
 STYLE_NAMES = {"strict": "专制型", "gentle": "放任型", "balanced": "权威型"}
 ACTION_CN = {"homework": "做作业", "rest": "休息", "distract": "开小差", "cant_solve": "题目不会"}
 
@@ -72,7 +72,7 @@ DELTA = {
     "cant_solve": {"focus": -6, "mood": -8, "progress": 0, "patience": {"strict": -6, "gentle": -2, "balanced": -4}},
 }
 
-# -------------------------- 游戏数据 --------------------------
+# -------------------------- 数据类 --------------------------
 class GameData:
     def __init__(self):
         self.participant_id = ""
@@ -129,7 +129,7 @@ class GameData:
             "parent_words": p_talk, "child_words": c_talk
         })
 
-# -------------------------- 页面主逻辑 --------------------------
+# -------------------------- 页面逻辑 --------------------------
 def main():
     if "user_data" not in st.session_state:
         st.session_state.user_data = GameData()
@@ -139,7 +139,7 @@ def main():
     user = st.session_state.user_data
     page = st.session_state.page
 
-    # 页面1：编号
+    # 1 输入编号
     if page == "input_id":
         st.title("家庭教育视角互换实验")
         pid = st.text_input("实验编号", placeholder="如：P01")
@@ -148,7 +148,7 @@ def main():
             st.session_state.page = "pre_ques"
             st.rerun()
 
-    # 页面2：前置问卷
+    # 2 前置问卷
     elif page == "pre_ques":
         st.subheader("家长教养风格测评问卷")
         ans_list = []
@@ -156,7 +156,7 @@ def main():
             opt = st.radio(f"{idx+1}. {que}", [1,2,3,4], horizontal=True,
                            format_func=lambda x:["完全不符合","不太符合","比较符合","完全符合"][x-1])
             ans_list.append(opt)
-        if st.button("提交问卷，开启模拟", use_container_width=True):
+        if st.button("提交并开始模拟", use_container_width=True):
             score_dict = {"strict":0,"balanced":0,"gentle":0}
             for a, (_, dim) in zip(ans_list, QUESTIONNAIRE):
                 score_dict[dim] += a
@@ -172,7 +172,7 @@ def main():
             st.session_state.page = "game_run"
             st.rerun()
 
-    # 页面3：游戏界面（无动画！静态对话气泡！）
+    # 3 游戏界面（无动画 + 简约人物）
     elif page == "game_run":
         st.subheader(f"作业辅导模拟 | 风格：{user.real_style}")
         c1,c2,c3,c4 = st.columns(4)
@@ -182,17 +182,19 @@ def main():
         c4.metric("耐心", f"{user.patience}%"), c4.progress(user.patience/100)
 
         st.divider()
-        st.markdown("## 💬 实时对话")
+        st.markdown("## 💬 对话区")
 
         # ======================
-        # 关键：静态对话气泡
+        # 极简人物 + 静态对话
         # ======================
         if user.cur_parent_talk:
-            with st.container():
-                st.chat_message("parent").write(user.cur_parent_talk)
-                st.chat_message("child").write(user.cur_child_talk)
+            st.markdown("👨‍👩 **家长**")
+            st.success(user.cur_parent_talk)
+            
+            st.markdown("👦 **孩子**")
+            st.info(user.cur_child_talk)
 
-        # 冲突显示
+        # 冲突提示
         if user.cur_conflict:
             st.error(f"⚠️ 冲突发生：{user.cur_conflict}")
 
@@ -203,7 +205,7 @@ def main():
             user.action_update(act_map[act])
             st.rerun()
 
-        # 完成
+        # 完成条件
         if user.progress >= 100:
             st.balloons()
             st.success("✅ 作业完成！")
@@ -213,27 +215,29 @@ def main():
         else:
             st.caption(f"当前进度：{user.progress}%")
 
-    # 页面4：反思报告
+    # 4 反思报告
     elif page == "reflection":
         st.title("📊 反思报告")
         st.info(f"编号：{user.participant_id} | 风格：{user.real_style}")
         if user.game_records:
             df = pd.DataFrame(user.game_records)
-            st.subheader("状态趋势")
+            st.subheader("状态变化")
             st.line_chart(df, y=["focus","mood","progress","patience"])
             col1,col2,col3 = st.columns(3)
-            col1.metric("总操作", len(user.game_records))
+            col1.metric("总互动", len(user.game_records))
             col2.metric("最低专注", f"{min([60]+[x['focus']for x in user.game_records])}%")
             col3.metric("最低情绪", f"{min([70]+[x['mood']for x in user.game_records])}%")
-            st.subheader("冲突统计")
+            st.subheader("冲突记录")
             clist = [r["conflict"]for r in user.game_records if r["conflict"]]
-            if clist: st.bar_chart(pd.Series(clist).value_counts())
-            else: st.write("无冲突")
+            if clist:
+                st.bar_chart(pd.Series(clist).value_counts())
+            else:
+                st.write("无冲突")
         if st.button("前往后置问卷", use_container_width=True):
             st.session_state.page = "after_survey"
             st.rerun()
 
-    # 页面5：后置问卷
+    # 5 后置问卷
     elif page == "after_survey":
         st.title("📋 后置体验问卷")
         answers = []
@@ -250,7 +254,7 @@ def main():
             }
             js = json.dumps(data, ensure_ascii=False, indent=2)
             st.success("提交成功！")
-            st.download_button("💾 下载全套数据", js, f"实验数据_{user.participant_id}.json", use_container_width=True)
+            st.download_button("💾 下载数据", js, f"实验数据_{user.participant_id}.json", use_container_width=True)
 
 if __name__ == "__main__":
     main()
