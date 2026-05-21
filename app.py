@@ -1,288 +1,202 @@
 import streamlit as st
 import json
 import random
-import requests
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
 from datetime import datetime
-from config import (
-    QUESTIONNAIRE, AFTER_SURVEY_QUESTIONS, STYLE_NAMES,
-    DELTA, DIALOGUE_PAIRS, CHILD_RESPONSES, HOMEWORK_CHILD_RESPONSES,
-    LLM_URL_ZHIPU, LLM_MODEL_ZHIPU, ZHIPU_API_KEY, LLM_MAX_RETRY, LLM_TIMEOUT_SECONDS
-)
+from io import BytesIO, StringIO
+from PIL import Image
 
-# 你的PostBin地址（已填好）
-POSTBIN_URL = "https://www.postb.in/1779334708404-8427541556302"
+# 配置页面
+st.set_page_config(page_title="家庭教育实验", layout="wide")
 
-# -------------------------- 数据类（完全复用原逻辑） --------------------------
+# ====================== 全局配置 ======================
+STYLE_NAMES = {"strict": "专制型", "gentle": "放任型", "balanced": "权威型"}
+
+QUESTIONNAIRE = [
+    ("孩子作业出错时，我会直接严厉批评，很少耐心讲解", "strict"),
+    ("辅导作业时，我要求孩子必须完全听从我的安排，不允许反驳", "strict"),
+    ("孩子作业拖延或开小差时，我会用强硬方式督促其改正", "strict"),
+    ("我对孩子作业质量要求极高，达不到标准就严厉指责", "strict"),
+    ("我更注重纠错而非鼓励，认为批评才能进步", "strict"),
+    ("孩子作业做得好及时表扬，不好先指出再引导", "balanced"),
+    ("我会和孩子约定规则，违反指出，遵守表扬", "balanced"),
+    ("孩子遇难题先鼓励独立思考，再讲解", "balanced"),
+    ("先肯定优点，再指出改进", "balanced"),
+    ("失误先分析原因，再给建议", "balanced"),
+    ("孩子开小差仅简单提醒，不强制", "gentle"),
+    ("仅陪伴，无进度质量要求", "gentle"),
+    ("孩子不会不批评不强制，自愿求助", "gentle"),
+    ("长期拖延也不强制，仅提醒", "gentle"),
+    ("习惯不合理仅口头提醒", "gentle"),
+]
+
+AFTER_SURVEY_QUESTIONS = [
+    "我能顺利代入孩子视角",
+    "游戏场景与现实贴合",
+    "我能感受到孩子真实感受",
+    "教养方式直接影响孩子状态",
+    "体验让我重新审视教育方式",
+    "我意识到强硬教育的负面影响",
+    "我理解权威式教育的优势",
+    "本次体验帮助我换位思考",
+    "我愿意调整沟通方式",
+    "对共情教育有实际价值",
+]
+
+DELTA = {
+    "homework": {"focus": 5, "mood": -3, "progress": 10, "patience": {"strict": 2, "gentle": 3, "balanced": 2}},
+    "rest": {"focus": -3, "mood": 8, "progress": 0, "patience": {"strict": -5, "gentle": 0, "balanced": -2}},
+    "distract": {"focus": -8, "mood": 5, "progress": 0, "patience": {"strict": -10, "gentle": -5, "balanced": -8}},
+    "cant_solve": {"focus": -6, "mood": -8, "progress": 0, "patience": {"strict": -6, "gentle": -2, "balanced": -4}},
+}
+
+# ====================== 数据类 ======================
 class GameData:
     def __init__(self):
         self.participant_id = ""
-        self.real_style = "未选择"
         self.parent_style = "strict"
+        self.real_style = ""
         self.focus = 60
         self.mood = 70
         self.progress = 0
         self.patience = 80
-        self.ops = []
-        self.conflicts = []
-        self.questionnaire_answers = []
-        self.after_survey_answers = []
-        self.rows = []
+        self.logs = []
+        self.qs = []
+        self.after = []
 
-    def reset_for_game(self):
+    def reset(self):
         self.focus = 60
         self.mood = 70
         self.progress = 0
         self.patience = 80
-        self.ops = []
-        self.conflicts = []
-        self.rows = []
+        self.logs = []
 
-    def add_log(self, action, conflict_type, dialogue, child_dialogue):
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.rows.append({
-            "timestamp": now,
-            "participant_id": self.participant_id,
-            "action": action,
+    def act(self, action):
+        d = DELTA[action]
+        self.focus = max(0, min(100, self.focus + d["focus"]))
+        self.mood = max(0, min(100, self.mood + d["mood"]))
+        self.patience = max(0, min(100, self.patience + d["patience"][self.parent_style]))
+        self.progress = max(0, min(100, self.progress + d["progress"]))
+        self.logs.append({
+            "t": datetime.now().strftime("%H:%M:%S"),
+            "act": action,
             "focus": self.focus,
             "mood": self.mood,
             "progress": self.progress,
-            "patience": self.patience,
-            "conflict_type": conflict_type,
-            "parent_dialogue": dialogue,
-            "child_dialogue": child_dialogue
+            "patience": self.patience
         })
 
-# -------------------------- 核心工具函数 --------------------------
-def clamp(value):
-    return max(0, min(100, value))
+# 初始化
+if "data" not in st.session_state:
+    st.session_state.data = GameData()
+if "page" not in st.session_state:
+    st.session_state.page = 0
 
-def get_conflicts(data):
-    found = []
-    if data.focus < 30:
-        found.append("专注冲突")
-    if data.mood < 20:
-        found.append("情绪冲突")
-    if data.patience < 20:
-        found.append("亲子冲突")
-    return found
+data = st.session_state.data
 
-def assess_parent_style(answers):
-    scores = {"strict": 0, "balanced": 0, "gentle": 0}
-    for answer, (_, dim) in zip(answers, QUESTIONNAIRE):
-        scores[dim] += max(1, min(4, answer))
-    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    top, second = sorted_scores[0], sorted_scores[1]
-    if second[1] >= top[1] - 1:
-        return "balanced"
-    return top[0]
+# ====================== 页面1：输入ID ======================
+if st.session_state.page == 0:
+    st.title("📝 实验开始")
+    pid = st.text_input("实验编号")
+    if st.button("下一步") and pid:
+        data.participant_id = pid
+        st.session_state.page = 1
+        st.rerun()
 
-# -------------------------- AI对话生成函数 --------------------------
-def generate_ai_dialogue(parent_style, action, conflict_list):
-    """调用智谱AI生成符合教养风格的家长对话"""
-    if not ZHIPU_API_KEY:
-        return None
-    
-    # 构建提示词
-    style_desc = {
-        "strict": "专制型家长，高要求、低包容，喜欢直接批评、强调规则和服从，说话直接、严厉",
-        "gentle": "放任型家长，低要求、高包容，注重陪伴、不强制、鼓励自主，说话温和、不强势",
-        "balanced": "权威型家长，适中要求、适中包容，先肯定再指出问题、引导改进，说话理性、有边界"
-    }
-    action_desc = {
-        "homework": "孩子正在写作业",
-        "rest": "孩子想休息",
-        "distract": "孩子写作业开小差",
-        "cant_solve": "孩子遇到不会的题目"
-    }
-    conflict_desc = ""
-    if conflict_list:
-        conflict_desc = f"当前出现了{', '.join(conflict_list)}，家长情绪受到影响"
-    
-    prompt = f"""
-    你是一个{style_desc[parent_style]}，现在{action_desc[action]}。{conflict_desc}
-    请生成一句符合你身份的家长对话，不要太长，口语化，直接给出对话内容即可。
-    """
+# ====================== 页面2：问卷 ======================
+elif st.session_state.page == 1:
+    st.title("家长教养风格问卷")
+    ans = []
+    for q, _ in QUESTIONNAIRE:
+        v = st.radio(q, [1,2,3,4], horizontal=True, key=q)
+        ans.append(v)
+    if st.button("提交"):
+        s = {"strict":0,"balanced":0,"gentle":0}
+        for a, (_, d) in zip(ans, QUESTIONNAIRE):
+            s[d] += a
+        best = max(s, key=s.get)
+        data.parent_style = best
+        data.real_style = STYLE_NAMES[best]
+        data.qs = ans
+        data.reset()
+        st.session_state.page = 2
+        st.rerun()
 
-    headers = {
-        "Authorization": f"Bearer {ZHIPU_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "model": LLM_MODEL_ZHIPU,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.7,
-        "max_tokens": 50
-    }
+# ====================== 页面3：游戏 ======================
+elif st.session_state.page == 2:
+    st.title(f"🎮 辅导模拟（{data.real_style}）")
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("专注", data.focus); c1.progress(data.focus/100)
+    c2.metric("情绪", data.mood); c2.progress(data.mood/100)
+    c3.metric("进度", data.progress); c3.progress(data.progress/100)
+    c4.metric("耐心", data.patience); c4.progress(data.patience/100)
 
-    for _ in range(LLM_MAX_RETRY):
-        try:
-            response = requests.post(
-                LLM_URL_ZHIPU,
-                headers=headers,
-                json=data,
-                timeout=LLM_TIMEOUT_SECONDS
-            )
-            if response.status_code == 200:
-                return response.json()["choices"][0]["message"]["content"].strip()
-        except:
-            continue
-    return None
-
-# -------------------------- 核心逻辑（带AI对话） --------------------------
-def apply_action(action, data):
-    delta = DELTA[action]
-    if action == "cant_solve":
-        data.focus = clamp(data.focus + delta["focus"])
-        data.mood = clamp(data.mood + delta["mood"])
-        data.patience = clamp(data.patience + delta["patience"][data.parent_style])
-    else:
-        data.focus = clamp(data.focus + delta["focus"])
-        data.mood = clamp(data.mood + delta["mood"])
-        data.patience = clamp(data.patience + delta["patience"][data.parent_style])
-    data.progress = clamp(data.progress + delta["progress"])
-    data.ops.append(action)
-    conflict_list = get_conflicts(data)
-    is_conflict = len(conflict_list) > 0
-    conflict_type = "、".join(conflict_list) if is_conflict else ""
-
-    # 优先调用AI生成对话，失败则用规则库
-    parent_dialogue = generate_ai_dialogue(data.parent_style, action, conflict_list)
-    if not parent_dialogue:
-        pair = random.choice(DIALOGUE_PAIRS[data.parent_style]["conflict"] if is_conflict else DIALOGUE_PAIRS[data.parent_style][action])
-        parent_dialogue, child_dialogue = pair[0], pair[1]
-    else:
-        # AI生成了家长对话，随机匹配一个孩子回应
-        child_dialogue = random.choice(CHILD_RESPONSES[data.parent_style][action])
-
-    data.add_log(action, conflict_type, parent_dialogue, child_dialogue)
-    return parent_dialogue, child_dialogue, conflict_list
-
-# -------------------------- 数据上传函数（零成本） --------------------------
-def upload_data(data):
-    try:
-        requests.post(POSTBIN_URL, json={
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "participant_id": data.participant_id,
-            "real_parent_style": data.real_style,
-            "simulate_style": STYLE_NAMES[data.parent_style],
-            "operations": data.ops,
-            "conflicts": data.conflicts,
-            "pre_questionnaire": data.questionnaire_answers,
-            "after_questionnaire": data.after_survey_answers,
-            "logs": data.rows
-        }, timeout=5)
-        return True
-    except:
-        return False
-
-# -------------------------- Streamlit页面逻辑（美化版） --------------------------
-def main():
-    st.set_page_config(page_title="家庭教育模拟实验", layout="wide", page_icon="👨‍👩‍👧")
-    st.title("🏠 家庭教育模拟实验")
-
-    # 初始化会话状态
-    if "page" not in st.session_state:
-        st.session_state.page = "input"
-    if "data" not in st.session_state:
-        st.session_state.data = GameData()
-    data = st.session_state.data
-
-    # 1. 输入ID页面
-    if st.session_state.page == "input":
-        st.markdown("### 欢迎参与本次家庭教育视角互换实验")
-        st.info("请输入你的实验编号，开始体验孩子视角的作业辅导场景")
-        data.participant_id = st.text_input("请输入你的实验编号（如 P01）")
-        if st.button("下一步填写问卷", disabled=not data.participant_id, use_container_width=True):
-            st.session_state.page = "questionnaire"
-            st.rerun()
-
-    # 2. 前置问卷页面
-    elif st.session_state.page == "questionnaire":
-        st.subheader("📝 家长教养风格问卷")
-        st.markdown("请根据你的真实情况选择，我们将根据你的回答判定你的教养风格")
-        answers = []
-        for i, (q, _) in enumerate(QUESTIONNAIRE):
-            ans = st.radio(f"Q{i+1}: {q}", [1,2,3,4], index=0, format_func=lambda x: ["完全不符合", "不太符合", "比较符合", "完全符合"][x-1])
-            answers.append(ans)
-        if st.button("提交问卷，开始模拟", use_container_width=True):
-            data.questionnaire_answers = answers
-            data.parent_style = assess_parent_style(answers)
-            data.real_style = STYLE_NAMES[data.parent_style]
-            st.success(f"✅ 你的教养风格判定为：{data.real_style}，将以该风格进行模拟")
-            # 只在进入游戏时重置一次数据，解决进度不动问题
-            data.reset_for_game()
-            st.session_state.page = "game"
-            st.rerun()
-
-    # 3. 游戏交互页面（修复进度问题+美化界面）
-    elif st.session_state.page == "game":
-        st.subheader("🎮 作业辅导模拟场景")
-        
-        # 状态卡片
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("🧠 专注度", f"{data.focus}%")
-            st.progress(data.focus/100)
-        with col2:
-            st.metric("😊 情绪值", f"{data.mood}%")
-            st.progress(data.mood/100)
-        with col3:
-            st.metric("📚 作业进度", f"{data.progress}%")
-            st.progress(data.progress/100)
-        with col4:
-            st.metric("⏳ 家长耐心", f"{data.patience}%")
-            st.progress(data.patience/100)
-
-        st.divider()
-        action = st.radio("请选择孩子的行为：", ["做作业", "休息", "开小差", "题目不会"], horizontal=True)
-        action_map = {"做作业":"homework", "休息":"rest", "开小差":"distract", "题目不会":"cant_solve"}
-        if st.button("执行操作", use_container_width=True, type="primary"):
-            p_dialogue, c_dialogue, conflicts = apply_action(action_map[action], data)
-            st.session_state.last_p = p_dialogue
-            st.session_state.last_c = c_dialogue
-            st.session_state.conflicts = conflicts
-            st.rerun()
-
-        if "last_p" in st.session_state:
-            st.divider()
-            # 对话气泡美化
-            with st.chat_message("user", avatar="👩‍👧"):
-                st.markdown(f"**家长：** {st.session_state.last_p}")
-            with st.chat_message("assistant", avatar="👧"):
-                st.markdown(f"**孩子：** {st.session_state.last_c}")
-            if st.session_state.conflicts:
-                st.warning(f"⚠️ 冲突触发：{', '.join(st.session_state.conflicts)}")
-
+    act = st.radio("孩子行为", ["做作业","休息","开小差","题目不会"], horizontal=1)
+    m = {"做作业":"homework","休息":"rest","开小差":"distract","题目不会":"cant_solve"}
+    if st.button("执行"):
+        data.act(m[act])
         if data.progress >= 100:
-            st.balloons()
-            st.success("🎉 作业完成！请完成后置问卷")
-            if st.button("进入后置问卷", use_container_width=True):
-                st.session_state.page = "after_survey"
-                st.rerun()
-
-    # 4. 后置问卷页面
-    elif st.session_state.page == "after_survey":
-        st.subheader("📝 体验反馈问卷")
-        st.markdown("请根据你的体验感受选择，帮助我们改进实验")
-        answers = []
-        for i, q in enumerate(AFTER_SURVEY_QUESTIONS):
-            ans = st.radio(f"Q{i+1}: {q}", [1,2,3,4,5], index=2, format_func=lambda x: ["非常不同意", "不同意", "一般", "同意", "非常同意"][x-1])
-            answers.append(ans)
-        if st.button("提交并结束实验", use_container_width=True, type="primary"):
-            data.after_survey_answers = answers
-            success = upload_data(data)
-            if success:
-                st.success("✅ 数据已提交，感谢参与！")
-            else:
-                st.warning("网络波动，数据已临时存储，稍后会自动上传")
-            st.session_state.page = "end"
+            st.success("✅ 作业完成！生成反思报告")
+            st.session_state.page = 3
             st.rerun()
 
-    # 5. 结束页面
-    elif st.session_state.page == "end":
-        st.title("🎊 实验结束，感谢你的参与！")
-        st.info("你的数据已安全提交，本次体验将帮助我们更好地理解家庭教育中的沟通模式")
-        st.balloons()
+# ====================== 页面4：反思报告（你要的核心！）======================
+elif st.session_state.page == 3:
+    st.title("📊 个人反思报告")
 
-if __name__ == "__main__":
-    main()
+    # 图表
+    df = pd.DataFrame(data.logs)
+    fig, ax = plt.subplots(figsize=(10,4))
+    ax.plot(df.index, df.focus, label="专注", color="#4B89DC")
+    ax.plot(df.index, df.mood, label="情绪", color="#F66D9F")
+    ax.plot(df.index, df.progress, label="进度", color="#38C172")
+    ax.plot(df.index, df.patience, label="耐心", color="#777")
+    ax.legend()
+    ax.set_ylim(0,100)
+    st.pyplot(fig)
+
+    # 统计
+    st.subheader("📌 模拟概况")
+    acts = [x["act"] for x in data.logs]
+    c = dict(pd.Series(acts).value_counts())
+    st.write(f"总操作：{len(acts)} 次")
+    st.write(f"行为统计：{c}")
+
+    # 反思文字
+    st.subheader("💡 反思与建议")
+    st.markdown(f"""
+    **你的类型：{data.real_style}**
+    - 你在模拟中体验了孩子的真实学习状态
+    - 专注/情绪/耐心的波动直接反映教育方式影响
+    - 强制型易导致情绪下降、耐心不足
+    - 放任型易导致进度缓慢、规则意识弱
+    - 权威型（温和+边界）最利于长期学习习惯
+    """)
+
+    st.success("✅ 报告生成完成！")
+
+    # 下载
+    buf = BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight")
+    buf.seek(0)
+    st.download_button("💾 下载反思报告图片", buf, "反思报告.png", "image/png")
+
+    # 数据下载
+    out = {
+        "id": data.participant_id,
+        "style": data.real_style,
+        "logs": data.logs,
+        "qs": data.qs
+    }
+    js = json.dumps(out, ensure_ascii=0, indent=2)
+    st.download_button("📥 下载完整实验数据", js, f"数据_{data.participant_id}.json")
+
+    if st.button("完成体验"):
+        st.session_state.page = 4
+        st.rerun()
+
+elif st.session_state.page == 4:
+    st.title("✅ 实验结束")
+    st.success("所有数据已下载保存，感谢参与！")
