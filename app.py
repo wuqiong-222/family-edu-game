@@ -7,12 +7,11 @@ import pandas as pd
 import sqlite3
 import os
 
-# -------------------------- 页面配置 --------------------------
-st.set_page_config(page_title="家庭教育模拟实验", layout="wide")
-
-# 数据库路径（强制生成）
+# -------------------------- 强制生成数据库文件 --------------------------
 DB_PATH = "data.db"
+# 强制创建文件（即使是空的）
 if not os.path.exists(DB_PATH):
+    open(DB_PATH, "a").close()
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""
     CREATE TABLE IF NOT EXISTS results (
@@ -47,7 +46,7 @@ def save_data(pid, style, pre, game, after):
     finally:
         conn.close()
 
-# -------------------------- 管理员后台（独立入口） --------------------------
+# -------------------------- 管理员后台 --------------------------
 def admin_dashboard():
     st.title("📊 管理员数据后台")
     conn = get_db()
@@ -58,12 +57,10 @@ def admin_dashboard():
         st.info("暂无提交数据")
         return
 
-    # 显示列表
     st.subheader("所有提交记录")
     st.dataframe(df[["id", "pid", "style", "time"]], use_container_width=True)
 
-    # 查看详情
-    st.subheader("查看单条数据详情")
+    st.subheader("查看详情")
     selected_id = st.selectbox("选择记录ID", df["id"].tolist())
     if selected_id:
         row = df[df["id"] == selected_id].iloc[0]
@@ -78,27 +75,15 @@ def admin_dashboard():
 
 # -------------------------- 游戏主程序 --------------------------
 def main_game():
-    # 初始化会话状态
     if "state" not in st.session_state:
         st.session_state.state = {
-            "pid": "",
-            "style": "",
-            "s_key": "balanced",
-            "focus": 60,
-            "mood": 70,
-            "progress": 0,
-            "patience": 80,
-            "pre": [],
-            "game": [],
-            "after": [],
-            "page": 0,
-            "parent_msg": "",
-            "child_msg": "",
-            "conflict": ""
+            "pid": "", "style": "", "s_key": "balanced",
+            "focus": 60, "mood": 70, "progress": 0, "patience": 80,
+            "pre": [], "game": [], "after": [],
+            "page": 0, "parent_msg": "", "child_msg": "", "conflict": ""
         }
     s = st.session_state.state
 
-    # 常量定义
     STYLE = {"strict": "专制型", "gentle": "放任型", "balanced": "权威型"}
     ACT_CN = {"homework": "做作业", "rest": "休息", "distract": "开小差", "cant_solve": "题目不会"}
     PRE_QS = [
@@ -160,7 +145,6 @@ def main_game():
         }
     }
 
-    # AI对话生成
     def ai_reply(style, act, is_conflict):
         ZHIPU_KEY = "9b3679a915614c8c8e342390bbe798fa.9CkuesKtmmNyhTtF"
         ZHIPU_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
@@ -184,17 +168,14 @@ def main_game():
         except:
             return None
 
-    # 页面1：输入编号
     if s["page"] == 0:
         st.title("🏠 家庭教育模拟实验")
-        st.markdown("### 欢迎参与本次家庭教育视角互换实验")
         st.info("请输入你的实验编号，开始体验孩子视角的作业辅导场景")
         s["pid"] = st.text_input("请输入你的实验编号（如 P01）")
         if st.button("下一步填写问卷", disabled=not s["pid"]):
             s["page"] = 1
             st.rerun()
 
-    # 页面2：前置问卷
     elif s["page"] == 1:
         st.subheader("📝 教养风格测评问卷")
         ans = []
@@ -202,7 +183,6 @@ def main_game():
             ans.append(st.radio(f"{i+1}. {q}", [1,2,3,4], horizontal=True, key=f"pre_{i}"))
         if st.button("提交并进入模拟", use_container_width=True):
             s["pre"] = ans
-            # 计算风格
             score = {"strict":0, "balanced":0, "gentle":0}
             for a, (_, k) in zip(ans, PRE_QS):
                 score[k] += a
@@ -211,7 +191,6 @@ def main_game():
             s["page"] = 2
             st.rerun()
 
-    # 页面3：游戏模拟
     elif s["page"] == 2:
         st.subheader(f"🎮 作业辅导模拟 | 当前风格：{s['style']}")
         col1, col2, col3, col4 = st.columns(4)
@@ -238,21 +217,18 @@ def main_game():
         act_key = {"做作业":"homework", "休息":"rest", "开小差":"distract", "题目不会":"cant_solve"}[act]
 
         if st.button("执行互动", use_container_width=True):
-            # 更新状态
             delta = DELTA[act_key]
             s["focus"] = max(0, min(100, s["focus"] + delta["f"]))
             s["mood"] = max(0, min(100, s["mood"] + delta["m"]))
             s["patience"] = max(0, min(100, s["patience"] + delta["pt"][s["s_key"][0]]))
             s["progress"] = max(0, min(100, s["progress"] + delta["p"]))
 
-            # 检查冲突
             conflict = []
             if s["focus"] < 30: conflict.append("专注度过低")
             if s["mood"] < 20: conflict.append("情绪崩溃")
             if s["patience"] < 20: conflict.append("家长耐心耗尽")
             s["conflict"] = "、".join(conflict) if conflict else ""
 
-            # 获取对话
             res = ai_reply(s["style"], act, bool(conflict))
             if not res:
                 res = random.choice(LOCAL_DIALOGUE[s["s_key"]]["conflict" if conflict else act_key])
@@ -260,7 +236,6 @@ def main_game():
             s["parent_msg"] = res["parent"]
             s["child_msg"] = res["child"]
 
-            # 记录游戏过程
             s["game"].append({
                 "action": act,
                 "focus": s["focus"],
@@ -280,7 +255,6 @@ def main_game():
                 s["page"] = 3
                 st.rerun()
 
-    # 页面4：后置问卷
     elif s["page"] == 3:
         st.subheader("📋 体验反馈问卷")
         after_ans = []
@@ -288,24 +262,21 @@ def main_game():
             after_ans.append(st.radio(f"Q{i+1}: {q}", [1,2,3,4,5], horizontal=True, key=f"after_{i}"))
         if st.button("提交并结束实验", use_container_width=True):
             s["after"] = after_ans
-            # 保存数据
             if save_data(s["pid"], s["style"], s["pre"], s["game"], s["after"]):
                 st.success("✅ 提交成功！感谢参与")
                 st.balloons()
-                st.info("数据已保存，管理员可在后台查看")
+                st.info("数据已保存到 data.db，可通过工具查看")
                 st.stop()
             else:
                 st.error("提交失败，请重试")
 
-# -------------------------- 主入口 --------------------------
 def main():
-    # 管理员入口按钮（放在侧边栏）
     with st.sidebar:
-        if st.button("🔐 进入管理员后台", use_container_width=True):
-            st.session_state["is_admin"] = True
+        if st.button("🔐 管理员后台", use_container_width=True):
+            st.session_state["admin_mode"] = True
             st.rerun()
 
-    if st.session_state.get("is_admin", False):
+    if st.session_state.get("admin_mode", False):
         admin_dashboard()
     else:
         main_game()
