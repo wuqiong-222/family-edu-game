@@ -1,26 +1,22 @@
 import streamlit as st
 import json
 import random
-import time
 import requests
 from datetime import datetime
 import pandas as pd
 
-# -------------------------- 页面配置 --------------------------
+# -------------------------- 配置 --------------------------
 st.set_page_config(page_title="家庭教育实验", layout="wide")
-
-# -------------------------- 大模型配置（智谱 GLM） --------------------------
 USE_LLM = True
 LLM_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 LLM_MODEL = "glm-4-flash"
 API_KEY = "9b3679a915614c8c8e342390bbe798fa.9CkuesKtmmNyhTtF"
 LLM_TIMEOUT = 10
 
-# -------------------------- 核心常量定义 --------------------------
+# -------------------------- 常量 --------------------------
 STYLE_NAMES = {"strict": "专制型", "gentle": "放任型", "balanced": "权威型"}
 ACTION_CN = {"homework": "做作业", "rest": "休息", "distract": "开小差", "cant_solve": "题目不会"}
 
-# 前置问卷
 QUESTIONNAIRE = [
     ("孩子作业出错时，我会直接严厉批评，很少耐心讲解", "strict"),
     ("辅导作业时，我要求孩子必须完全听从我的安排，不允许反驳", "strict"),
@@ -39,7 +35,6 @@ QUESTIONNAIRE = [
     ("习惯不合理仅口头提醒", "gentle"),
 ]
 
-# 后置问卷
 AFTER_SURVEY_QUESTIONS = [
     "我能顺利代入孩子视角感受状态",
     "游戏场景和现实家庭辅导贴合",
@@ -53,32 +48,30 @@ AFTER_SURVEY_QUESTIONS = [
     "对亲子教育具备参考价值"
 ]
 
-# 对话模板（兜底用）
 DIALOGUE_PAIRS = {
     "strict": {
-        "homework": [("抓紧认真写，不许磨蹭", "知道啦，我尽量做好"), ("字迹工整点，马虎就要重写", "我慢慢调整书写")],
-        "rest": [("作业没完成不能随便休息", "我已经写很久有点累了"), ("写完任务再谈休息", "好吧那我再坚持一会")],
-        "distract": [("专心做题，不要分心贪玩", "一不小心走神了"), ("立刻收回心思专注学习", "我马上集中注意力")],
-        "cant_solve": [("基础题都不会，上课没用心", "知识点有点没弄懂"), ("静下心仔细梳理思路", "我再重新审题试试")],
+        "homework": [("抓紧认真写，不许磨蹭", "知道啦，我尽量做好")],
+        "rest": [("作业没完成不能随便休息", "我已经写很久有点累了")],
+        "distract": [("专心做题，不要分心贪玩", "一不小心走神了")],
+        "cant_solve": [("基础题都不会，上课没用心", "知识点有点没弄懂")],
         "conflict": [("态度端正一点，认真对待学习", "我会调整状态好好完成")]
     },
     "gentle": {
-        "homework": [("慢慢写就行，不用太过紧张", "好的，我稳步完成"), ("尽力就好，不用强求高标准", "那我按自己节奏写")],
-        "rest": [("累了就歇一会，不用勉强自己", "放松下再继续做题"), ("想休息多久都可以自己安排", "短暂休息就回来学习")],
-        "distract": [("分心也没关系，之后补上就好", "接下来我专心做题"), ("偶尔放松无妨，后续抓紧进度", "我把控好学习节奏")],
-        "cant_solve": [("不会就先搁置，之后再处理", "先跳过做其他题目"), ("不用焦虑，慢慢来思考就行", "我多琢磨一下题目")],
+        "homework": [("慢慢写就行，不用太过紧张", "好的，我稳步完成")],
+        "rest": [("累了就歇一会，不用勉强自己", "放松下再继续做题")],
+        "distract": [("分心也没关系，之后补上就好", "接下来我专心做题")],
+        "cant_solve": [("不会就先搁置，之后再处理", "先跳过做其他题目")],
         "conflict": [("不用有压力，放平心态就好", "我舒缓情绪继续学习")]
     },
     "balanced": {
-        "homework": [("合理把控速度，保证书写质量", "我兼顾速度和工整度"), ("认真完成每一题，养成好习惯", "用心做好当下习题")],
-        "rest": [("完成阶段性任务，可以短时放松", "休整过后继续努力"), ("约定休息时长，到点回归学习", "记住时间准时回来")],
-        "distract": [("察觉分心及时拉回注意力哦", "意识到了立刻专注"), ("劳逸结合，尽量减少走神情况", "后续专心投入学习")],
-        "cant_solve": [("遇到难题正常，我们一起分析", "麻烦帮我梳理下思路"), ("先自主思考，不懂再来询问", "我先尝试独立解题")],
+        "homework": [("合理把控速度，保证书写质量", "我兼顾速度和工整度")],
+        "rest": [("完成阶段性任务，可以短时放松", "休整过后继续努力")],
+        "distract": [("察觉分心及时拉回注意力哦", "意识到了立刻专注")],
+        "cant_solve": [("遇到难题正常，我们一起分析", "麻烦帮我梳理下思路")],
         "conflict": [("出现情绪波动，调整后继续推进", "平复心情接着完成任务")]
     }
 }
 
-# 行为对状态的影响值
 DELTA = {
     "homework": {"focus": 5, "mood": -3, "progress": 10, "patience": {"strict": 2, "gentle": 3, "balanced": 2}},
     "rest": {"focus": -3, "mood": 8, "progress": 0, "patience": {"strict": -5, "gentle": 0, "balanced": -2}},
@@ -86,44 +79,26 @@ DELTA = {
     "cant_solve": {"focus": -6, "mood": -8, "progress": 0, "patience": {"strict": -6, "gentle": -2, "balanced": -4}},
 }
 
-# -------------------------- AI 对话生成（优先） --------------------------
+# -------------------------- AI与兜底对话 --------------------------
 def generate_ai_dialog(style, action, is_conflict):
-    style_desc = {
-        "strict": "专制型家长，严格、强势、强调服从",
-        "gentle": "放任型家长，宽松、包容、不强制",
-        "balanced": "权威型家长，温和有边界，理性引导"
-    }
-    action_desc = {
-        "homework": "孩子正在写作业",
-        "rest": "孩子想要休息",
-        "distract": "孩子写作业开小差",
-        "cant_solve": "孩子遇到不会做的题目"
-    }
+    style_desc = {"strict":"专制型家长，严格强势","gentle":"放任型家长，宽松包容","balanced":"权威型家长，理性引导"}
+    action_desc = {"homework":"孩子正在写作业","rest":"孩子想要休息","distract":"孩子写作业开小差","cant_solve":"孩子遇到不会做的题目"}
     scene = "冲突状态" if is_conflict else "正常辅导"
-    prompt = f"""你是{style_desc[style]}，场景：{action_desc[action]}，当前：{scene}。
-请输出简短对话，各一句。只返回JSON格式：{{"parent":"","child":"","source":"ai"}}"""
-
+    prompt = f"""你是{style_desc[style]}，场景：{action_desc[action]}，当前：{scene}。输出简短对话，各一句。只返回JSON：{{"parent":"","child":"","source":"ai"}}"""
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-    data = {
-        "model": LLM_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.7
-    }
+    data = {"model": LLM_MODEL, "messages": [{"role": "user", "content": prompt}]}
     try:
         resp = requests.post(LLM_URL, json=data, timeout=LLM_TIMEOUT)
-        res = resp.json()
-        content = res["choices"][0]["message"]["content"]
-        return eval(content)
+        return eval(resp.json()["choices"][0]["message"]["content"])
     except:
         return None
 
-# -------------------------- 本地规则兜底 --------------------------
 def get_local_dialog(style, action, is_conflict):
     key = "conflict" if is_conflict else action
     p, c = random.choice(DIALOGUE_PAIRS[style][key])
     return {"parent": p, "child": c, "source": "规则兜底"}
 
-# -------------------------- 游戏数据类 --------------------------
+# -------------------------- 游戏数据 --------------------------
 class GameData:
     def __init__(self):
         self.participant_id = ""
@@ -167,17 +142,14 @@ class GameData:
         self.progress = max(0, min(100, self.progress + d["progress"]))
         self.cur_conflict = self.get_conflict_status()
 
-        # 核心：先AI，失败兜底
-        if USE_LLM:
-            dialog = generate_ai_dialog(self.parent_style, act_key, bool(self.cur_conflict))
-        if not USE_LLM or dialog is None:
+        dialog = generate_ai_dialog(self.parent_style, act_key, bool(self.cur_conflict)) if USE_LLM else None
+        if dialog is None:
             dialog = get_local_dialog(self.parent_style, act_key, bool(self.cur_conflict))
 
         self.cur_parent_talk = dialog["parent"]
         self.cur_child_talk = dialog["child"]
         self.dialog_source = dialog["source"]
 
-        # 记录
         self.game_records.append({
             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "action": ACTION_CN[act_key],
@@ -189,7 +161,7 @@ class GameData:
             "dialog_source": self.dialog_source
         })
 
-# -------------------------- 页面导航与渲染 --------------------------
+# -------------------------- 页面主逻辑 --------------------------
 def main():
     if "user_data" not in st.session_state:
         st.session_state.user_data = GameData()
@@ -199,7 +171,6 @@ def main():
     user = st.session_state.user_data
     current_page = st.session_state.page
 
-    # 页面1：输入实验编号
     if current_page == "input_id":
         st.title("家庭教育视角互换实验")
         pid = st.text_input("填写实验编号", placeholder="示例：P05")
@@ -208,7 +179,6 @@ def main():
             st.session_state.page = "pre_ques"
             st.rerun()
 
-    # 页面2：前置问卷
     elif current_page == "pre_ques":
         st.subheader("家长教养风格测评问卷")
         ans_list = []
@@ -221,10 +191,7 @@ def main():
             for a, (_, dim) in zip(ans_list, QUESTIONNAIRE):
                 score_dict[dim] += a
             sort_res = sorted(score_dict.items(), key=lambda x:x[1], reverse=True)
-            if sort_res[1][1] >= sort_res[0][1]-1:
-                final_style = "balanced"
-            else:
-                final_style = sort_res[0][0]
+            final_style = sort_res[0][0] if sort_res[1][1] < sort_res[0][1]-1 else "balanced"
             user.parent_style = final_style
             user.real_style = STYLE_NAMES[final_style]
             user.pre_questionnaire = ans_list
@@ -233,7 +200,6 @@ def main():
             st.session_state.page = "game_run"
             st.rerun()
 
-    # 页面3：游戏主界面（无动画！静态！）
     elif current_page == "game_run":
         st.subheader(f"作业辅导模拟 | 风格：{user.real_style}")
         c1,c2,c3,c4 = st.columns(4)
@@ -245,7 +211,6 @@ def main():
         st.divider()
         st.markdown("## 💬 对话区")
 
-        # 静态显示对话（无动画）
         if user.cur_parent_talk:
             st.markdown(f"👨‍👩 **家长**（{user.dialog_source}）")
             st.success(user.cur_parent_talk)
@@ -255,7 +220,6 @@ def main():
         if user.cur_conflict:
             st.error(f"⚠️ 冲突发生：{user.cur_conflict}")
 
-        # 操作
         act = st.radio("孩子行为", ["做作业","休息","开小差","题目不会"], horizontal=True)
         act_map = {"做作业":"homework","休息":"rest","开小差":"distract","题目不会":"cant_solve"}
         if st.button("执行互动", type="primary", use_container_width=True):
@@ -268,7 +232,6 @@ def main():
                 st.session_state.page = "reflection"
                 st.rerun()
 
-    # 页面4：反思报告
     elif current_page == "reflection":
         st.title("📊 反思报告")
         st.info(f"编号：{user.participant_id} | 风格：{user.real_style}")
@@ -282,7 +245,6 @@ def main():
             st.session_state.page = "after_survey"
             st.rerun()
 
-    # 页面5：后置问卷
     elif current_page == "after_survey":
         st.title("📋 后置问卷")
         answers = []
