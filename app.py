@@ -4,22 +4,54 @@ import random
 import requests
 from datetime import datetime
 import pandas as pd
+import sqlite3
 
 st.set_page_config(page_title="家庭教育视角互换实验", layout="wide", page_icon="👨‍👩‍👧")
 
+# 移动端适配CSS
 st.markdown("""
 <style>
-.main {background-color: #f8f9fa;}
-.stChatMessage {border-radius: 8px; padding: 6px; margin: 3px 0;}
-.stMetric {background: #fff; border-radius: 6px; padding:6px; box-shadow: 0 1px 3px #eee;}
-div.stButton > button:first-child {border-radius:6px; font-weight:500;}
-.stRadio > div {gap:6px;}
+.main {background-color: #f8f9fa; padding: 0.5rem;}
+.stChatMessage {border-radius: 8px; padding: 6px; margin: 3px 0; font-size: 1rem;}
+.stMetric {background: #fff; border-radius: 6px; padding: 8px; box-shadow: 0 1px 3px #eee;}
+div.stButton > button:first-child {border-radius:6px; font-weight:500; font-size: 1rem; padding: 0.5rem;}
+.stRadio > div {gap:6px; font-size: 1rem;}
 hr {margin:8px 0;}
-.block-container {padding-top:1rem; padding-bottom:1rem;}
+.block-container {padding-top:0.5rem; padding-bottom:0.5rem; max-width: 100% !important;}
+@media (max-width: 768px) {
+    .block-container {padding-left: 0.5rem; padding-right: 0.5rem;}
+    .stMarkdown {font-size: 1rem !important;}
+    h1, h2, h3, h4, h5, h6 {font-size: 1.2rem !important;}
+    .stMetric label {font-size: 0.9rem !important;}
+    .stMetric .stMetric-value {font-size: 1.1rem !important;}
+    .stProgress > div > div > div > div {height: 8px !important;}
+}
 </style>
 """, unsafe_allow_html=True)
 
-# ====================== 你提供的 AI 配置 ======================
+# 数据库初始化
+conn = sqlite3.connect('family_edu_data.db', check_same_thread=False)
+c = conn.cursor()
+c.execute('''CREATE TABLE IF NOT EXISTS submissions
+             (id INTEGER PRIMARY KEY AUTOINCREMENT,
+              experiment_id TEXT,
+              real_style TEXT,
+              pre_questionnaire TEXT,
+              game_records TEXT,
+              after_questionnaire TEXT,
+              timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+conn.commit()
+
+def save_submission(data):
+    c.execute("INSERT INTO submissions (experiment_id, real_style, pre_questionnaire, game_records, after_questionnaire) VALUES (?, ?, ?, ?, ?)",
+              (data["基础信息"]["实验编号"],
+               data["基础信息"]["判定教养风格"],
+               json.dumps(data["前置问卷作答"]),
+               json.dumps(data["游戏全程操作数据"]),
+               json.dumps(data["后置问卷作答"])))
+    conn.commit()
+
+# AI配置
 USE_LLM = True
 LLM_PROVIDER = "zhipu"
 LLM_URL_ZHIPU = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
@@ -28,7 +60,7 @@ ZHIPU_API_KEY = "9b3679a915614c8c8e342390bbe798fa.9CkuesKtmmNyhTtF"
 LLM_TIMEOUT_SECONDS = 10
 LLM_MAX_RETRY = 2
 
-# ==================== 基础常量 ====================
+# 基础常量
 STYLE_NAMES = {"strict": "专制型", "gentle": "放任型", "balanced": "权威型"}
 ACTION_CN = {
     "homework": "做作业",
@@ -99,7 +131,6 @@ DELTA = {
     "cant_solve": {"focus": -6, "mood": -8, "progress": 0, "patience": {"strict": -6, "gentle": -2, "balanced": -4}},
 }
 
-# ====================== AI 对话生成（智谱） ======================
 def ai_generate_dialogue(style, action, is_conflict):
     style_text = STYLE_NAMES[style]
     action_text = ACTION_CN[action]
@@ -137,14 +168,12 @@ def ai_generate_dialogue(style, action, is_conflict):
             continue
     return None
 
-# ====================== 本地兜底对话 ======================
 def get_local_dialogue(style, action, is_conflict):
     lib = DIALOGUE_PAIRS[style]
     key = "conflict" if is_conflict else action
     p, c = random.choice(lib[key])
     return {"parent": p, "child": c}
 
-# ====================== 数据类 ======================
 class GameData:
     def __init__(self):
         self.participant_id = ""
@@ -211,7 +240,6 @@ class GameData:
         }
         self.game_records.append(record)
 
-# ====================== 初始化 ======================
 if "user_data" not in st.session_state:
     st.session_state.user_data = GameData()
 if "page_flag" not in st.session_state:
@@ -220,7 +248,6 @@ if "page_flag" not in st.session_state:
 user = st.session_state.user_data
 page = st.session_state.page_flag
 
-# ====================== 页面1 编号 ======================
 if page == "input_id":
     st.title("👨‍👩‍👧 家庭教育视角互换实验")
     st.divider()
@@ -231,7 +258,6 @@ if page == "input_id":
         st.session_state.page_flag = "pre_ques"
         st.rerun()
 
-# ====================== 页面2 问卷 ======================
 elif page == "pre_ques":
     st.subheader("📝 教养风格测评问卷")
     ans_list = []
@@ -254,7 +280,6 @@ elif page == "pre_ques":
         st.session_state.page_flag = "game_run"
         st.rerun()
 
-# ====================== 页面3 游戏 ======================
 elif page == "game_run":
     st.subheader(f"📚 作业辅导模拟 | {user.real_style}")
     st.divider()
@@ -294,7 +319,6 @@ elif page == "game_run":
     else:
         st.info(f"当前进度：{user.progress}%，继续互动完成任务")
 
-# ====================== 页面4 报告 ======================
 elif page == "reflection":
     st.title("📊 体验反思报告")
     st.info(f"编号：{user.participant_id} | 风格：{user.real_style}")
@@ -338,7 +362,6 @@ elif page == "reflection":
         st.session_state.page_flag = "after_survey"
         st.rerun()
 
-# ====================== 页面5 问卷 ======================
 elif page == "after_survey":
     st.title("📋 后置调查问卷")
     st.divider()
@@ -358,7 +381,31 @@ elif page == "after_survey":
     if st.button("提交并导出数据", use_container_width=True, type="primary"):
         user.after_questionnaire = answers
         json_all = json.dumps(all_final_data, ensure_ascii=False, indent=3)
-        st.success("✅ 数据提交完成")
+        save_submission(all_final_data)
+        st.success("✅ 数据提交完成！管理员可在后台查看")
         st.download_button("💾 下载数据文件", json_all,
                            file_name=f"全套数据_{user.participant_id}.json",
                            mime="application/json", use_container_width=True)
+
+# 管理员后台
+if st.experimental_get_query_params().get("admin", ["0"])[0] == "1":
+    st.sidebar.title("管理员后台")
+    password = st.sidebar.text_input("输入管理员密码", type="password")
+    if password == "123456": # 改成你自己的密码
+        st.title("📊 所有提交数据")
+        df = pd.read_sql_query("SELECT * FROM submissions", conn)
+        st.dataframe(df[["id", "experiment_id", "real_style", "timestamp"]])
+        
+        selected_id = st.selectbox("选择要查看的提交ID", df["id"].tolist())
+        if selected_id:
+            row = df[df["id"] == selected_id].iloc[0]
+            st.subheader(f"提交详情 - ID: {selected_id}")
+            st.write("实验编号:", row["experiment_id"])
+            st.write("教养风格:", row["real_style"])
+            st.write("提交时间:", row["timestamp"])
+            if st.button("查看完整数据"):
+                st.json({
+                    "前置问卷": json.loads(row["pre_questionnaire"]),
+                    "游戏记录": json.loads(row["game_records"]),
+                    "后置问卷": json.loads(row["after_questionnaire"])
+                })
