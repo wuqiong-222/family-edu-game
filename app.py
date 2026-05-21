@@ -366,12 +366,13 @@ else:
             user.real_style = STYLE_NAMES[final_style]
             user.pre_questionnaire = ans_list
             user.reset_game()
-            st.success(f"判定风格：{user.real_style}")
+            st.success("测评完成，即将进入模拟场景")
             st.session_state.page_flag = "game_run"
             st.rerun()
 
     elif page == "game_run":
-        st.subheader(f"📚 作业辅导模拟 | {user.real_style}")
+        # 【修改点】游戏过程不再显示教养风格
+        st.subheader("📚 作业辅导模拟")
         st.divider()
         c1,c2,c3,c4 = st.columns(4)
         c1.metric("专注度", f"{user.focus}%")
@@ -411,7 +412,7 @@ else:
 
     elif page == "reflection":
         st.title("📊 体验反思报告")
-        st.info(f"编号：{user.participant_id} | 风格：{user.real_style}")
+        st.info(f"编号：{user.participant_id}")
         st.divider()
         if user.game_records:
             df = pd.DataFrame(user.game_records)
@@ -438,14 +439,34 @@ else:
         action_counts = pd.Series([r["action"] for r in user.game_records]).value_counts()
         st.bar_chart(action_counts)
 
+        # 【修改点】大幅扩写反思总结，仅在此处显示教养风格
         st.subheader("💡 反思总结")
-        st.markdown(f"""
-本次以**{user.real_style}**开展模拟辅导：
-- 专制型易引发抵触，冲突概率偏高
-- 放任型情绪平稳，作业效率偏低
-- 权威型兼顾平衡，整体效果更佳
+        style_name = user.real_style
+        min_focus = min([60] + [x['focus'] for x in user.game_records])
+        min_mood = min([70] + [x['mood'] for x in user.game_records])
+        conflict_count = len(conflict_list)
+        total_interactions = len(user.game_records)
+        conflict_rate = f"{(conflict_count/total_interactions)*100:.1f}%" if total_interactions > 0 else "0%"
 
-共发生{len(conflict_list)}次冲突，最低专注度{min([60] + [x['focus'] for x in user.game_records])}%，最低情绪值{min([70] + [x['mood'] for x in user.game_records])}%。
+        st.markdown(f"""
+本次模拟中，你的教养方式被判定为：**{style_name}**。
+
+### 本次模拟数据解读
+- 你与孩子共进行了 **{total_interactions}** 次互动，其中产生亲子冲突 **{conflict_count}** 次，冲突率为 **{conflict_rate}**。
+- 孩子的最低专注度为 **{min_focus}%**，最低情绪值为 **{min_mood}%**，这反映了你的教养方式对孩子学习状态的直接影响。
+
+### 不同教养方式的特点对比
+- **专制型**：以指令和控制为主，效率高但易引发孩子抵触情绪，长期可能导致沟通不畅和亲子冲突。
+- **放任型**：以陪伴和包容为主，孩子情绪稳定但学习动力和效率可能偏低，需要更多外部引导。
+- **权威型**：兼顾规则与共情，在设定明确目标的同时给予孩子情绪支持，是被普遍认为最均衡、最有效的教养方式。
+
+### 本次体验的启示
+通过本次视角互换，你亲身体验了不同教养方式下孩子的真实感受。
+- 当采用**专制型**方式时，孩子的专注度和情绪值更容易出现明显波动，抵触情绪和冲突概率偏高。
+- 当采用**放任型**方式时，孩子情绪相对平稳，但作业进度和专注度提升较慢，缺乏有效激励。
+- 当采用**权威型**方式时，孩子的状态整体更稳定，既能保持一定的学习进度，也能维持较好的情绪状态。
+
+教养的核心不是控制或放任，而是理解与平衡。本次体验帮助你直观感受到了不同沟通方式对孩子心理状态的影响，也为你未来的家庭教育方式调整提供了重要参考。
 """)
         st.divider()
         if st.button("填写后置问卷", use_container_width=True):
