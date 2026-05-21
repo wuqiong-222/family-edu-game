@@ -6,25 +6,59 @@ from datetime import datetime
 import pandas as pd
 import sqlite3
 
-st.set_page_config(page_title="家庭教育视角互换实验", layout="wide", page_icon="👨‍👩‍👧")
+# 【核心修复】页面配置 + 布局调整
+st.set_page_config(
+    page_title="家庭教育视角互换实验",
+    layout="wide",
+    page_icon="👨‍👩‍👧",
+    initial_sidebar_state="expanded"
+)
 
-# 移动端适配CSS
+# 【核心修复】全局CSS，解决顶部遮挡和手机适配
 st.markdown("""
 <style>
-.main {background-color: #f8f9fa; padding: 0.5rem;}
-.stChatMessage {border-radius: 8px; padding: 6px; margin: 3px 0; font-size: 1rem;}
-.stMetric {background: #fff; border-radius: 6px; padding: 8px; box-shadow: 0 1px 3px #eee;}
-div.stButton > button:first-child {border-radius:6px; font-weight:500; font-size: 1rem; padding: 0.5rem;}
-.stRadio > div {gap:6px; font-size: 1rem;}
-hr {margin:8px 0;}
-.block-container {padding-top:0.5rem; padding-bottom:0.5rem; max-width: 100% !important;}
+/* 1. 移除顶部空白，解决遮挡问题 */
+.block-container {
+    padding-top: 1rem !important;
+    padding-bottom: 1rem !important;
+    max-width: 100% !important;
+}
+
+/* 2. 移动端适配：文字大小、元素宽度 */
 @media (max-width: 768px) {
-    .block-container {padding-left: 0.5rem; padding-right: 0.5rem;}
-    .stMarkdown {font-size: 1rem !important;}
-    h1, h2, h3, h4, h5, h6 {font-size: 1.2rem !important;}
-    .stMetric label {font-size: 0.9rem !important;}
-    .stMetric .stMetric-value {font-size: 1.1rem !important;}
-    .stProgress > div > div > div > div {height: 8px !important;}
+    .stMarkdown {
+        font-size: 14px !important;
+    }
+    h1, h2, h3, h4, h5, h6 {
+        font-size: 18px !important;
+    }
+    .stMetric label, .stMetric .stMetric-value {
+        font-size: 14px !important;
+    }
+    .stRadio > div {
+        gap: 4px !important;
+    }
+    .stButton > button {
+        font-size: 14px !important;
+        padding: 0.4rem !important;
+    }
+    /* 修复手机端输入框和按钮被遮挡 */
+    .stTextInput, .stButton, .stSelectbox {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+}
+
+/* 3. 美化进度条和卡片 */
+.stProgress > div > div > div > div {
+    height: 10px !important;
+    border-radius: 5px;
+}
+.stMetric {
+    background: #fff;
+    border-radius: 8px;
+    padding: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
 </style>
 """, unsafe_allow_html=True)
@@ -440,3 +474,6 @@ else:
             st.download_button("💾 下载数据文件", json_all,
                                file_name=f"全套数据_{user.participant_id}.json",
                                mime="application/json", use_container_width=True)
+
+# 关闭数据库连接
+conn.close()
