@@ -2,11 +2,19 @@ import streamlit as st
 import json
 import random
 import time
+import requests
 from datetime import datetime
 import pandas as pd
 
 # -------------------------- 页面配置 --------------------------
 st.set_page_config(page_title="家庭教育实验", layout="wide")
+
+# -------------------------- 大模型配置（智谱 GLM） --------------------------
+USE_LLM = True
+LLM_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+LLM_MODEL = "glm-4-flash"
+API_KEY = "9b3679a915614c8c8e342390bbe798fa.9CkuesKtmmNyhTtF"
+LLM_TIMEOUT = 10
 
 # -------------------------- 核心常量定义 --------------------------
 STYLE_NAMES = {"strict": "专制型", "gentle": "放任型", "balanced": "权威型"}
@@ -45,7 +53,7 @@ AFTER_SURVEY_QUESTIONS = [
     "对亲子教育具备参考价值"
 ]
 
-# 对话模板
+# 对话模板（兜底用）
 DIALOGUE_PAIRS = {
     "strict": {
         "homework": [("抓紧认真写，不许磨蹭", "知道啦，我尽量做好"), ("字迹工整点，马虎就要重写", "我慢慢调整书写")],
@@ -78,6 +86,43 @@ DELTA = {
     "cant_solve": {"focus": -6, "mood": -8, "progress": 0, "patience": {"strict": -6, "gentle": -2, "balanced": -4}},
 }
 
+# -------------------------- AI 对话生成（优先） --------------------------
+def generate_ai_dialog(style, action, is_conflict):
+    style_desc = {
+        "strict": "专制型家长，严格、强势、强调服从",
+        "gentle": "放任型家长，宽松、包容、不强制",
+        "balanced": "权威型家长，温和有边界，理性引导"
+    }
+    action_desc = {
+        "homework": "孩子正在写作业",
+        "rest": "孩子想要休息",
+        "distract": "孩子写作业开小差",
+        "cant_solve": "孩子遇到不会做的题目"
+    }
+    scene = "冲突状态" if is_conflict else "正常辅导"
+    prompt = f"""你是{style_desc[style]}，场景：{action_desc[action]}，当前：{scene}。
+请输出简短对话，各一句。只返回JSON格式：{{"parent":"","child":"","source":"ai"}}"""
+
+    headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+    data = {
+        "model": LLM_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.7
+    }
+    try:
+        resp = requests.post(LLM_URL, json=data, timeout=LLM_TIMEOUT)
+        res = resp.json()
+        content = res["choices"][0]["message"]["content"]
+        return eval(content)
+    except:
+        return None
+
+# -------------------------- 本地规则兜底 --------------------------
+def get_local_dialog(style, action, is_conflict):
+    key = "conflict" if is_conflict else action
+    p, c = random.choice(DIALOGUE_PAIRS[style][key])
+    return {"parent": p, "child": c, "source": "规则兜底"}
+
 # -------------------------- 游戏数据类 --------------------------
 class GameData:
     def __init__(self):
@@ -94,6 +139,7 @@ class GameData:
         self.cur_parent_talk = ""
         self.cur_child_talk = ""
         self.cur_conflict = ""
+        self.dialog_source = ""
 
     def reset_game(self):
         self.focus = 60
@@ -104,15 +150,13 @@ class GameData:
         self.cur_parent_talk = ""
         self.cur_child_talk = ""
         self.cur_conflict = ""
+        self.dialog_source = ""
 
     def get_conflict_status(self):
         conflict = []
-        if self.focus < 30:
-            conflict.append("专注冲突")
-        if self.mood < 20:
-            conflict.append("情绪冲突")
-        if self.patience < 20:
-            conflict.append("亲子冲突")
+        if self.focus < 30: conflict.append("专注冲突")
+        if self.mood < 20: conflict.append("情绪冲突")
+        if self.patience < 20: conflict.append("亲子冲突")
         return "、".join(conflict) if conflict else ""
 
     def action_update(self, act_key):
@@ -121,33 +165,32 @@ class GameData:
         self.mood = max(0, min(100, self.mood + d["mood"]))
         self.patience = max(0, min(100, self.patience + d["patience"][self.parent_style]))
         self.progress = max(0, min(100, self.progress + d["progress"]))
-
         self.cur_conflict = self.get_conflict_status()
-        talk_lib = DIALOGUE_PAIRS[self.parent_style]
-        if self.cur_conflict:
-            p_talk, c_talk = random.choice(talk_lib["conflict"])
-        else:
-            p_talk, c_talk = random.choice(talk_lib[act_key])
 
-        self.cur_parent_talk = p_talk
-        self.cur_child_talk = c_talk
+        # 核心：先AI，失败兜底
+        if USE_LLM:
+            dialog = generate_ai_dialog(self.parent_style, act_key, bool(self.cur_conflict))
+        if not USE_LLM or dialog is None:
+            dialog = get_local_dialog(self.parent_style, act_key, bool(self.cur_conflict))
 
-        record = {
+        self.cur_parent_talk = dialog["parent"]
+        self.cur_child_talk = dialog["child"]
+        self.dialog_source = dialog["source"]
+
+        # 记录
+        self.game_records.append({
             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "action": ACTION_CN[act_key],
-            "focus": self.focus,
-            "mood": self.mood,
-            "progress": self.progress,
-            "patience": self.patience,
+            "focus": self.focus, "mood": self.mood,
+            "progress": self.progress, "patience": self.patience,
             "conflict": self.cur_conflict,
-            "parent_words": p_talk,
-            "child_words": c_talk
-        }
-        self.game_records.append(record)
+            "parent_words": self.cur_parent_talk,
+            "child_words": self.cur_child_talk,
+            "dialog_source": self.dialog_source
+        })
 
 # -------------------------- 页面导航与渲染 --------------------------
 def main():
-    # 初始化游戏数据
     if "user_data" not in st.session_state:
         st.session_state.user_data = GameData()
     if "page" not in st.session_state:
@@ -190,143 +233,73 @@ def main():
             st.session_state.page = "game_run"
             st.rerun()
 
-    # 页面3：游戏主界面
+    # 页面3：游戏主界面（无动画！静态！）
     elif current_page == "game_run":
-        st.subheader(f"作业辅导模拟 | 当前风格：{user.real_style}")
-
-        # 状态面板
+        st.subheader(f"作业辅导模拟 | 风格：{user.real_style}")
         c1,c2,c3,c4 = st.columns(4)
-        c1.metric("专注度", f"{user.focus}%")
-        c1.progress(user.focus/100)
-        c2.metric("情绪值", f"{user.mood}%")
-        c2.progress(user.mood/100)
-        c3.metric("作业进度", f"{user.progress}%")
-        c3.progress(user.progress/100)
-        c4.metric("耐心值", f"{user.patience}%")
-        c4.progress(user.patience/100)
+        c1.metric("专注度", f"{user.focus}%"), c1.progress(user.focus/100)
+        c2.metric("情绪值", f"{user.mood}%"), c2.progress(user.mood/100)
+        c3.metric("作业进度", f"{user.progress}%"), c3.progress(user.progress/100)
+        c4.metric("耐心值", f"{user.patience}%"), c4.progress(user.patience/100)
 
         st.divider()
-        st.markdown("## 💬 实时对话（打字动画）")
-        chat_area = st.empty()
+        st.markdown("## 💬 对话区")
 
-        # 冲突提示
+        # 静态显示对话（无动画）
+        if user.cur_parent_talk:
+            st.markdown(f"👨‍👩 **家长**（{user.dialog_source}）")
+            st.success(user.cur_parent_talk)
+            st.markdown("👦 **孩子**")
+            st.info(user.cur_child_talk)
+
         if user.cur_conflict:
-            st.error(f"⚠️ 冲突发生！类型：{user.cur_conflict}")
+            st.error(f"⚠️ 冲突发生：{user.cur_conflict}")
 
-        # 操作区
-        act_select = st.radio("孩子当前行为", ["做作业","休息","开小差","题目不会"], horizontal=True)
+        # 操作
+        act = st.radio("孩子行为", ["做作业","休息","开小差","题目不会"], horizontal=True)
         act_map = {"做作业":"homework","休息":"rest","开小差":"distract","题目不会":"cant_solve"}
-
-        if st.button("执行本次互动操作", type="primary", use_container_width=True):
-            user.action_update(act_map[act_select])
+        if st.button("执行互动", type="primary", use_container_width=True):
+            user.action_update(act_map[act])
             st.rerun()
 
-        # 打字动画
-        if user.cur_parent_talk:
-            with chat_area.container():
-                pcol, ccol = st.columns(2)
-                with pcol:
-                    st.chat_message("家长").write("家长：")
-                    text = ""
-                    t = st.empty()
-                    for ch in user.cur_parent_talk:
-                        text += ch
-                        t.markdown(f"**{text}**")
-                        time.sleep(0.04)
-                with ccol:
-                    st.chat_message("孩子").write("孩子：")
-                    text2 = ""
-                    t2 = st.empty()
-                    time.sleep(0.2)
-                    for ch in user.cur_child_talk:
-                        text2 += ch
-                        t2.markdown(text2)
-                        time.sleep(0.04)
-
-        # 完成判断
         if user.progress >= 100:
-            st.balloons()
-            st.success("🎉 作业任务完成！")
+            st.success("✅ 作业完成！")
             if st.button("前往反思报告", use_container_width=True):
                 st.session_state.page = "reflection"
                 st.rerun()
-        else:
-            st.info(f"当前进度：{user.progress}%，请继续互动，进度达到100%才能完成任务")
 
     # 页面4：反思报告
     elif current_page == "reflection":
-        st.title("📊 模拟体验反思报告")
-        st.info(f"实验编号：{user.participant_id} | 教养风格：{user.real_style}")
-
+        st.title("📊 反思报告")
+        st.info(f"编号：{user.participant_id} | 风格：{user.real_style}")
         if user.game_records:
             df = pd.DataFrame(user.game_records)
-            st.subheader("📈 状态变化趋势")
-            st.line_chart(df, y=["focus","mood","progress","patience"], use_container_width=True)
-
-            st.subheader("📌 基础统计")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("总互动次数", len(user.game_records))
-            with col2:
-                st.metric("最低专注度", f"{min([60] + [x['focus'] for x in user.game_records])}%")
-            with col3:
-                st.metric("最低情绪值", f"{min([70] + [x['mood'] for x in user.game_records])}%")
-
-            st.subheader("⚠️ 冲突统计")
-            conflict_list = [r["conflict"] for r in user.game_records if r["conflict"]]
-            if conflict_list:
-                conflict_counts = pd.Series(conflict_list).value_counts()
-                st.bar_chart(conflict_counts)
-            else:
-                st.write("本次模拟未发生任何冲突")
-
-            st.subheader("🎯 行为分布")
-            action_counts = pd.Series([r["action"] for r in user.game_records]).value_counts()
-            st.bar_chart(action_counts)
-
-            st.subheader("💡 深度反思总结")
-            st.markdown(f"""
-            本次以**{user.real_style}**模式完成辅导模拟，互动过程中状态波动直观体现了教养方式的影响：
-            - **专制型**：易引发孩子情绪抵触，耐心值下降快，冲突发生率高
-            - **放任型**：孩子情绪稳定，但作业进度推进缓慢，规则意识弱
-            - **权威型**：能较好平衡孩子心态与任务推进，冲突最少
-
-            **核心发现：**
-            本次模拟中，你共触发 **{len(conflict_list)} 次冲突**，最低专注度降至 **{min([60] + [x['focus'] for x in user.game_records])}%**，情绪值最低降至 **{min([70] + [x['mood'] for x in user.game_records])}%**。
-            换位思考后，你能更直观地感受到不同沟通方式对孩子学习状态的影响，后续可优化沟通语气与边界尺度，减少不必要的冲突。
-            """)
-
-        if st.button("前往后置体验问卷", use_container_width=True):
+            st.subheader("状态趋势")
+            st.line_chart(df, y=["focus","mood","progress","patience"])
+            st.subheader("对话来源统计")
+            st.dataframe(df["dialog_source"].value_counts())
+        if st.button("前往后置问卷", use_container_width=True):
             st.session_state.page = "after_survey"
             st.rerun()
 
     # 页面5：后置问卷
     elif current_page == "after_survey":
-        st.title("📋 后置体验问卷")
-        st.info("请结合本次模拟体验，回答以下问题，帮助我们改进实验")
+        st.title("📋 后置问卷")
         answers = []
-        for idx, que in enumerate(AFTER_SURVEY_QUESTIONS):
-            ans = st.radio(f"Q{idx+1}: {que}", [1,2,3,4,5], horizontal=True,
-                           format_func=lambda x: ["非常不同意", "不同意", "一般", "同意", "非常同意"][x-1])
-            answers.append(ans)
-
-        all_final_data = {
-            "基础信息":{
-                "实验编号":user.participant_id,
-                "判定教养风格":user.real_style
-            },
-            "前置问卷作答":user.pre_questionnaire,
-            "游戏全程操作数据":user.game_records,
-            "后置问卷作答":answers
-        }
-
-        if st.button("提交问卷，生成全套数据文件", use_container_width=True, type="primary"):
-            user.after_questionnaire = answers
-            json_all = json.dumps(all_final_data, ensure_ascii=False, indent=3)
-            st.success("✅ 全部数据汇总完毕！")
-            st.download_button("💾 下载全套实验数据", json_all,
-                               file_name=f"全套数据_{user.participant_id}.json",
-                               mime="application/json", use_container_width=True)
+        for i, q in enumerate(AFTER_SURVEY_QUESTIONS):
+            r = st.radio(f"{i+1}. {q}", [1,2,3,4,5], horizontal=True,
+                         format_func=lambda x:["非常不同意","不同意","一般","同意","非常同意"][x-1])
+            answers.append(r)
+        if st.button("提交并下载数据", type="primary", use_container_width=True):
+            data = {
+                "编号":user.participant_id,"风格":user.real_style,
+                "前置问卷":user.pre_questionnaire,
+                "记录":user.game_records,
+                "后置问卷":answers
+            }
+            js = json.dumps(data, ensure_ascii=False, indent=2)
+            st.success("提交成功！")
+            st.download_button("下载数据", js, f"数据_{user.participant_id}.json", use_container_width=True)
 
 if __name__ == "__main__":
     main()
