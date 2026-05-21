@@ -190,10 +190,11 @@ def get_local_dialogue(style, action, is_conflict):
 class GameData:
     def __init__(self):
         self.participant_id = ""
-        self.origin_style = ""        # 原始测评风格
-        self.origin_records = []      # 原始风格游戏数据
-        self.current_style = "balanced"
-        self.current_records = []     # 当前体验数据
+        self.base_style = ""
+        self.base_records = []
+        self.exp_style = ""
+        self.exp_records = []
+        self.now_style = ""
         self.focus = 60
         self.mood = 70
         self.progress = 0
@@ -204,7 +205,7 @@ class GameData:
         self.cur_child_talk = ""
         self.cur_conflict = ""
 
-    def reset_status(self):
+    def reset_state(self):
         self.focus = 60
         self.mood = 70
         self.progress = 0
@@ -224,11 +225,11 @@ class GameData:
         d = DELTA[act_key]
         self.focus = max(0, min(100, self.focus + d["focus"]))
         self.mood = max(0, min(100, self.mood + d["mood"]))
-        self.patience = max(0, min(100, self.patience + d["patience"][self.current_style]))
+        self.patience = max(0, min(100, self.patience + d["patience"][self.now_style]))
         self.progress = max(0, min(100, self.progress + d["progress"]))
         self.cur_conflict = self.get_conflict_status()
         conflict_flag = bool(self.cur_conflict)
-        dialog = ai_generate_dialogue(self.current_style, act_key, conflict_flag) or get_local_dialogue(self.current_style, act_key, conflict_flag)
+        dialog = ai_generate_dialogue(self.now_style, act_key, conflict_flag) or get_local_dialogue(self.now_style, act_key, conflict_flag)
         self.cur_parent_talk = dialog["parent"]
         self.cur_child_talk = dialog["child"]
         record = {
@@ -242,7 +243,10 @@ class GameData:
             "parent_words": dialog["parent"],
             "child_words": dialog["child"]
         }
-        self.current_records.append(record)
+        if self.now_style == self.base_style:
+            self.base_records.append(record)
+        else:
+            self.exp_records.append(record)
 
 if "user_data" not in st.session_state:
     st.session_state.user_data = GameData()
@@ -319,12 +323,12 @@ else:
                 score_dict[dim] += a
             sort_res = sorted(score_dict.items(), key=lambda x:x[1], reverse=True)
             final_style = "balanced" if sort_res[1][1] >= sort_res[0][1]-1 else sort_res[0][0]
-            # 保存原始风格与数据
-            user.origin_style = final_style
-            user.current_style = final_style
+            user.base_style = final_style
+            user.now_style = final_style
             user.pre_questionnaire = ans_list
-            user.reset_status()
-            user.current_records = []
+            user.reset_state()
+            user.base_records = []
+            user.exp_records = []
             st.success("测评完成，即将进入模拟场景")
             st.session_state.page_flag = "game_run"
             st.rerun()
@@ -359,9 +363,6 @@ else:
         if user.progress >= 100:
             st.balloons()
             st.success("🎉 辅导任务完成")
-            # 首次游玩结束保存原始数据
-            if not user.origin_records:
-                user.origin_records = user.current_records.copy()
             if st.button("查看反思报告", use_container_width=True):
                 st.session_state.page_flag = "reflection"
                 st.rerun()
@@ -369,71 +370,74 @@ else:
             st.info(f"当前进度：{user.progress}%，继续互动完成任务")
 
     elif page == "reflection":
-        st.title("📊 双模式对比反思报告")
+        st.title("📊 体验反思报告")
         st.info(f"实验编号：{user.participant_id}")
         st.divider()
 
-        # 原始专制型数据统计
-        st.subheader("🔴 初次测评："+STYLE_NAMES[user.origin_style])
-        ori_rec = user.origin_records
-        if ori_rec:
-            df_ori = pd.DataFrame(ori_rec)
-            ori_inter = len(ori_rec)
-            ori_conflict = sum(1 for r in ori_rec if r["conflict"])
-            ori_min_focus = min([60]+[x["focus"] for x in ori_rec])
-            ori_min_mood = min([70]+[x["mood"] for x in ori_rec])
+        # 展示自身初始风格数据
+        base_name = STYLE_NAMES[user.base_style]
+        st.subheader(f"本次测评教养风格：{base_name}")
+        base_data = user.base_records
+        if base_data:
+            df_base = pd.DataFrame(base_data)
+            inter_cnt = len(base_data)
+            conflict_cnt = sum(1 for i in base_data if i["conflict"])
+            min_focus = min([60] + [d["focus"] for d in base_data])
+            min_mood = min([70] + [d["mood"] for d in base_data])
             col1,col2,col3,col4 = st.columns(4)
-            col1.metric("互动次数",ori_inter)
-            col2.metric("冲突次数",ori_conflict)
-            col3.metric("最低专注度",f"{ori_min_focus}%")
-            col4.metric("最低情绪值",f"{ori_min_mood}%")
-            st.line_chart(df_ori,y=["focus","mood","progress","patience"],use_container_width=True)
+            col1.metric("互动总次数", inter_cnt)
+            col2.metric("冲突发生次数", conflict_cnt)
+            col3.metric("最低专注度", f"{min_focus}%")
+            col4.metric("最低情绪值", f"{min_mood}%")
+            st.line_chart(df_base, y=["focus","mood","progress","patience"], use_container_width=True)
         else:
-            st.write("暂无初次体验数据")
+            st.write("暂无体验数据")
+
+        # 存在额外体验则一并展示
+        if user.exp_records:
+            st.divider()
+            st.subheader("额外体验：权威型模式")
+            exp_data = user.exp_records
+            df_exp = pd.DataFrame(exp_data)
+            e_inter = len(exp_data)
+            e_conflict = sum(1 for i in exp_data if i["conflict"])
+            e_min_focus = min([60] + [d["focus"] for d in exp_data])
+            e_min_mood = min([70] + [d["mood"] for d in exp_data])
+            col1,col2,col3,col4 = st.columns(4)
+            col1.metric("互动总次数", e_inter)
+            col2.metric("冲突发生次数", e_conflict)
+            col3.metric("最低专注度", f"{e_min_focus}%")
+            col4.metric("最低情绪值", f"{e_min_mood}%")
+            st.line_chart(df_exp, y=["focus","mood","progress","patience"], use_container_width=True)
 
         st.divider()
-        # 二次权威型数据统计
-        st.subheader("🟢 二次体验：权威型")
-        cur_rec = user.current_records
-        if cur_rec:
-            df_cur = pd.DataFrame(cur_rec)
-            cur_inter = len(cur_rec)
-            cur_conflict = sum(1 for r in cur_rec if r["conflict"])
-            cur_min_focus = min([60]+[x["focus"] for x in cur_rec])
-            cur_min_mood = min([70]+[x["mood"] for x in cur_rec])
-            col1,col2,col3,col4 = st.columns(4)
-            col1.metric("互动次数",cur_inter)
-            col2.metric("冲突次数",cur_conflict)
-            col3.metric("最低专注度",f"{cur_min_focus}%")
-            col4.metric("最低情绪值",f"{cur_min_mood}%")
-            st.line_chart(df_cur,y=["focus","mood","progress","patience"],use_container_width=True)
-        else:
-            st.write("暂未进行权威型体验")
+        st.subheader("💡 体验感悟与思考")
+        if not user.exp_records:
+            st.markdown(f"""
+本次模拟体验中，你的教养方式判定为**{base_name}**。
+在互动相处过程里，不同的沟通态度会直接影响孩子的学习专注度与内心情绪，也会改变亲子之间的相处氛围。
 
-        st.divider()
-        # 温和对比反思文案
-        st.subheader("💡 双模式对比感悟")
-        st.markdown(f"""
-本次你先后体验两种不同教养模式，分别为**{STYLE_NAMES[user.origin_style]}**与**权威型**，两组数据完整保留可直观对比差异。
-
-{STYLE_NAMES[user.origin_style]}模式相处中，行事偏向约束管控，互动节奏紧凑，容易让孩子心理产生紧绷感，亲子分歧出现概率相对更高。
-切换为权威型模式后，兼顾规则约束与情绪体谅，既引导孩子端正学习态度，也包容身心状态变化，整体相处氛围更为融洽平稳。
-
-对照两组状态曲线能够清晰发现，沟通方式直接影响孩子专注程度、情绪心态与亲子相处氛围。强硬管束易压抑身心，松散放任不利于成长，刚柔并济的权威式陪伴，更适配孩子成长需求。
-
-借助两次沉浸式体验，可清晰看见不同教育方式带来的不同结果，方便后续结合自身习惯，优化亲子沟通相处模式。
+每一种教养模式都有着自身特点，严苛约束容易引发抵触，随性包容难以督促成长，平衡有度的相处方式更契合孩子成长需求。
+你可以结合本次亲身感受，思考日常沟通里可以优化调整的地方。
 """)
+        else:
+            st.markdown(f"""
+你先后体验了**{base_name}**与权威型两种教养模式，能够直观感受到相处差异。
+不同处事态度下，孩子的状态表现、亲子冲突频次都有着明显区别。
+懂得把握规则与关怀的平衡，既能引导孩子稳步进步，也能维系融洽的亲子关系，这也是家庭教育中值得参考的方向。
+""")
+
         st.divider()
-        col_btn1,col_btn2 = st.columns(2)
-        with col_btn1:
+        # 可选按钮：填写问卷 / 选择是否额外体验权威型
+        col1,col2 = st.columns(2)
+        with col1:
             if st.button("填写后置问卷", use_container_width=True):
                 st.session_state.page_flag = "after_survey"
                 st.rerun()
-        with col_btn2:
-            if st.button("重新体验权威型家长模式", use_container_width=True):
-                user.current_style = "balanced"
-                user.reset_status()
-                user.current_records = []
+        with col2:
+            if st.button("选择额外体验权威型家长", use_container_width=True):
+                user.now_style = "balanced"
+                user.reset_state()
                 st.session_state.page_flag = "game_run"
                 st.rerun()
 
@@ -444,20 +448,23 @@ else:
         for idx, que in enumerate(AFTER_SURVEY_QUESTIONS):
             ans = st.radio(f"Q{idx+1}: {que}", [1,2,3,4,5], horizontal=True,format_func=lambda x: ["非常不同意", "不同意", "一般", "同意", "非常同意"][x-1])
             answers.append(ans)
-        all_final_data = {
-            "基础信息":{"实验编号":user.participant_id,"原始教养风格":STYLE_NAMES[user.origin_style]},
-            "前置问卷作答":user.pre_questionnaire,
-            "初次专制型数据":user.origin_records,
-            "二次权威型数据":user.current_records,
-            "后置问卷作答":answers
+        # 整合全部数据
+        all_data = {
+            "基础信息":{"实验编号":user.participant_id,"原始教养风格":STYLE_NAMES[user.base_style]},
+            "前置问卷":user.pre_questionnaire,
+            "初始风格体验数据":user.base_records,
+            "权威型额外体验数据":user.exp_records,
+            "后置问卷":answers
         }
         st.divider()
-        if st.button("提交并导出全部对比数据", use_container_width=True, type="primary"):
+        if st.button("提交并保存全部数据", use_container_width=True, type="primary"):
             user.after_questionnaire = answers
-            json_all = json.dumps(all_final_data, ensure_ascii=False, indent=3)
-            save_submission(all_final_data)
-            st.success("✅ 两套体验数据全部保存完毕")
-            st.download_button("💾 下载全套对比数据", json_all,file_name=f"双模式对比数据_{user.participant_id}.json",mime="application/json", use_container_width=True)
+            json_data = json.dumps(all_data, ensure_ascii=False, indent=3)
+            save_submission(all_data)
+            st.success("✅ 所有体验数据完整保存")
+            st.download_button("💾 下载全套数据文件", json_data,
+                               file_name=f"体验数据_{user.participant_id}.json",
+                               mime="application/json", use_container_width=True)
 
 # 关闭数据库连接
 conn.close()
