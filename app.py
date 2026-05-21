@@ -6,7 +6,7 @@ from datetime import datetime
 import pandas as pd
 import sqlite3
 
-# 【关键】页面配置：设置为wide模式，减少顶部空白
+# 页面配置
 st.set_page_config(
     page_title="家庭教育视角互换实验",
     layout="wide",
@@ -14,76 +14,53 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 【关键】全局CSS修复，解决所有显示问题
+# ========== 核心：彻底干掉顶部遮挡 CSS ==========
 st.markdown("""
 <style>
-/* 1. 彻底解决顶部空白，避免标题被遮挡 */
-.block-container {
-    padding-top: 0.5rem !important;
-    padding-bottom: 1rem !important;
+/* 1. 强制隐藏顶部 header、toolbar、装饰条 */
+header,
+div[data-testid="stHeader"],
+div[data-testid="stToolbar"],
+div[data-testid="stDecoration"],
+#MainMenu {
+    display: none !important;
+    height: 0 !important;
+    visibility: hidden !important;
+}
+
+/* 2. 主内容区顶部 padding 设为 0，紧贴屏幕 */
+.appview-container .main .block-container,
+div[data-testid="stMainBlockContainer"] {
+    padding-top: 0rem !important;
     padding-left: 1rem !important;
     padding-right: 1rem !important;
+    padding-bottom: 1rem !important;
     max-width: 100% !important;
 }
 
-/* 2. 标题文字强制完整显示，不截断 */
-h1, h2, h3, h4, h5, h6 {
-    white-space: normal !important;
-    word-wrap: break-word !important;
-    overflow-wrap: break-word !important;
+/* 3. 侧边栏顶部也归零 */
+.css-1d391kg,
+div[data-testid="stSidebar"] {
+    padding-top: 0rem !important;
 }
 
-/* 3. 手机端适配：文字大小、单选按钮换行 */
+/* 4. 标题不换行、不截断，垂直居中 */
+h1, h2, h3 {
+    white-space: nowrap !important;
+    overflow: visible !important;
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+}
+
+/* 5. 手机适配：字体缩小、单选垂直排 */
 @media (max-width: 768px) {
-    /* 整体文字缩小 */
-    .stMarkdown, p, li {
-        font-size: 14px !important;
-    }
-    /* 标题缩小 */
     h1 { font-size: 20px !important; }
     h2 { font-size: 18px !important; }
     h3 { font-size: 16px !important; }
-    /* 单选按钮强制换行，不挤在一起 */
     .stRadio > div {
-        display: flex;
         flex-direction: column !important;
         gap: 8px !important;
     }
-    .stRadio label {
-        font-size: 14px !important;
-        white-space: normal !important;
-    }
-    /* 按钮文字完整显示 */
-    .stButton > button {
-        font-size: 14px !important;
-        padding: 0.5rem !important;
-        white-space: normal !important;
-    }
-    /* 输入框宽度100%，不被挤压 */
-    .stTextInput, .stSelectbox, .stNumberInput {
-        width: 100% !important;
-    }
-    /* 进度条适配 */
-    .stProgress > div > div > div > div {
-        height: 8px !important;
-    }
-    /* 指标卡片文字适配 */
-    .stMetric label, .stMetric .stMetric-value {
-        font-size: 14px !important;
-    }
-}
-
-/* 4. 桌面端单选按钮间距优化 */
-@media (min-width: 769px) {
-    .stRadio > div {
-        gap: 16px !important;
-    }
-}
-
-/* 5. 强制所有文本自动换行 */
-* {
-    word-wrap: break-word !important;
-    overflow-wrap: break-word !important;
 }
 </style>
 """, unsafe_allow_html=True)
