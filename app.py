@@ -4,19 +4,28 @@ import random
 from datetime import datetime
 import pandas as pd
 
-# -------------------------- 页面配置 --------------------------
 st.set_page_config(page_title="家庭教育实验", layout="wide")
 
-# -------------------------- 核心常量定义 --------------------------
+# ==================== 基础常量配置 ====================
 STYLE_NAMES = {"strict": "专制型", "gentle": "放任型", "balanced": "权威型"}
-ACTION_CN = {"homework": "做作业", "rest": "休息", "distract": "开小差", "cant_solve": "题目不会"}
+STYLE_DESC = {
+    "strict": "专制型：高要求低包容，习惯批评约束",
+    "gentle": "放任型：低要求高包容，较少干预引导",
+    "balanced": "权威型：有度要求包容，理性沟通引导"
+}
 
-# 前置问卷
+ACTION_CN = {
+    "homework": "做作业",
+    "rest": "休息",
+    "distract": "开小差",
+    "cant_solve": "题目不会"
+}
+
 QUESTIONNAIRE = [
     ("孩子作业出错时，我会直接严厉批评，很少耐心讲解", "strict"),
     ("辅导作业时，我要求孩子必须完全听从我的安排，不允许反驳", "strict"),
     ("孩子作业拖延或开小差时，我会用强硬方式督促其改正", "strict"),
-    ("我对作业质量要求极高，达不到标准就严厉指责", "strict"),
+    ("我对孩子作业质量要求极高，达不到标准就严厉指责", "strict"),
     ("我更注重纠错而非鼓励，认为批评才能进步", "strict"),
     ("孩子作业做得好及时表扬，不好先指出再引导", "balanced"),
     ("我会和孩子约定规则，违反指出，遵守表扬", "balanced"),
@@ -30,21 +39,19 @@ QUESTIONNAIRE = [
     ("习惯不合理仅口头提醒", "gentle"),
 ]
 
-# 后置问卷
 AFTER_SURVEY_QUESTIONS = [
-    "我能顺利代入孩子视角感受状态",
-    "游戏场景和现实家庭辅导贴合",
-    "体会到孩子内心真实感受",
-    "教养态度直接影响孩子情绪",
-    "帮助我重新审视教育方式",
-    "意识到不当教育的负面影响",
-    "理解共情式教育的合理性",
-    "有效完成换位思考反思",
-    "愿意调整沟通方式",
-    "对亲子教育具备参考价值"
+    "本次模拟中，我能顺利代入孩子视角感受状态",
+    "游戏互动场景和现实家庭辅导情况贴合",
+    "体验同款教养方式，体会到孩子内心感受",
+    "明显察觉教养态度影响孩子情绪与学习状态",
+    "体验帮助我重新审视自身日常教育沟通方式",
+    "意识到不当教育行为会产生负面亲子影响",
+    "理解有边界共情式教育的优势与合理性",
+    "本次体验有效完成家庭教育换位思考反思",
+    "体验后愿意调整自身教养沟通方式",
+    "沉浸式模拟对亲子共情教育具备参考价值"
 ]
 
-# 对话模板（规则兜底）
 DIALOGUE_PAIRS = {
     "strict": {
         "homework": [("抓紧认真写，不许磨蹭", "知道啦，我尽量做好"), ("字迹工整点，马虎就要重写", "我慢慢调整书写")],
@@ -69,7 +76,6 @@ DIALOGUE_PAIRS = {
     }
 }
 
-# 行为对状态的影响值
 DELTA = {
     "homework": {"focus": 5, "mood": -3, "progress": 10, "patience": {"strict": 2, "gentle": 3, "balanced": 2}},
     "rest": {"focus": -3, "mood": 8, "progress": 0, "patience": {"strict": -5, "gentle": 0, "balanced": -2}},
@@ -77,7 +83,7 @@ DELTA = {
     "cant_solve": {"focus": -6, "mood": -8, "progress": 0, "patience": {"strict": -6, "gentle": -2, "balanced": -4}},
 }
 
-# -------------------------- 游戏数据类 --------------------------
+# ==================== 数据存储类 ====================
 class GameData:
     def __init__(self):
         self.participant_id = ""
@@ -144,172 +150,167 @@ class GameData:
         }
         self.game_records.append(record)
 
-# -------------------------- 页面导航与渲染 --------------------------
-def main():
-    # 初始化游戏数据
-    if "user_data" not in st.session_state:
-        st.session_state.user_data = GameData()
-    if "page" not in st.session_state:
-        st.session_state.page = "input_id"
+# 初始化会话
+if "user_data" not in st.session_state:
+    st.session_state.user_data = GameData()
+if "page_flag" not in st.session_state:
+    st.session_state.page_flag = "input_id"
 
-    user = st.session_state.user_data
-    current_page = st.session_state.page
+user = st.session_state.user_data
+page = st.session_state.page_flag
 
-    # 页面1：输入实验编号
-    if current_page == "input_id":
-        st.title("家庭教育视角互换实验")
-        pid = st.text_input("填写实验编号", placeholder="示例：P05")
-        if st.button("进入教养问卷", disabled=not pid):
-            user.participant_id = pid
-            st.session_state.page = "pre_ques"
-            st.rerun()
+# ==================== 页面1 输入编号 ====================
+if page == "input_id":
+    st.title("家庭教育视角互换实验")
+    pid = st.text_input("填写实验编号", placeholder="示例：P05")
+    if st.button("进入教养问卷", disabled=not pid):
+        user.participant_id = pid
+        st.session_state.page_flag = "pre_ques"
+        st.rerun()
 
-    # 页面2：前置问卷
-    elif current_page == "pre_ques":
-        st.subheader("家长教养风格测评问卷")
-        ans_list = []
-        for idx, (que, _) in enumerate(QUESTIONNAIRE):
-            opt = st.radio(f"{idx+1}. {que}", [1,2,3,4], horizontal=True,
-                           format_func=lambda x: ["完全不符合","不太符合","比较符合","完全符合"][x-1])
-            ans_list.append(opt)
-        if st.button("提交问卷，开启模拟", use_container_width=True):
-            score_dict = {"strict":0,"balanced":0,"gentle":0}
-            for a, (_, dim) in zip(ans_list, QUESTIONNAIRE):
-                score_dict[dim] += a
-            sort_res = sorted(score_dict.items(), key=lambda x:x[1], reverse=True)
-            if sort_res[1][1] >= sort_res[0][1]-1:
-                final_style = "balanced"
-            else:
-                final_style = sort_res[0][0]
-            user.parent_style = final_style
-            user.real_style = STYLE_NAMES[final_style]
-            user.pre_questionnaire = ans_list
-            user.reset_game()
-            st.success(f"判定完成，你的教养风格：{user.real_style}")
-            st.session_state.page = "game_run"
-            st.rerun()
-
-    # 页面3：游戏主界面（无AI、无动画，纯规则）
-    elif current_page == "game_run":
-        st.subheader(f"作业辅导模拟 | 当前风格：{user.real_style}")
-
-        # 状态面板
-        c1,c2,c3,c4 = st.columns(4)
-        c1.metric("专注度", f"{user.focus}%")
-        c1.progress(user.focus/100)
-        c2.metric("情绪值", f"{user.mood}%")
-        c2.progress(user.mood/100)
-        c3.metric("作业进度", f"{user.progress}%")
-        c3.progress(user.progress/100)
-        c4.metric("耐心值", f"{user.patience}%")
-        c4.progress(user.patience/100)
-
-        st.divider()
-        st.markdown("## 💬 实时对话")
-
-        # 静态对话显示
-        if user.cur_parent_talk:
-            st.markdown("👨‍👩 **家长**")
-            st.success(user.cur_parent_talk)
-            st.markdown("👦 **孩子**")
-            st.info(user.cur_child_talk)
-
-        # 冲突提示
-        if user.cur_conflict:
-            st.error(f"⚠️ 冲突发生！类型：{user.cur_conflict}")
-
-        # 操作区
-        act_select = st.radio("孩子当前行为", ["做作业","休息","开小差","题目不会"], horizontal=True)
-        act_map = {"做作业":"homework","休息":"rest","开小差":"distract","题目不会":"cant_solve"}
-
-        if st.button("执行本次互动操作", type="primary", use_container_width=True):
-            user.action_update(act_map[act_select])
-            st.rerun()
-
-        # 完成判断
-        if user.progress >= 100:
-            st.balloons()
-            st.success("🎉 作业任务完成！")
-            if st.button("前往反思报告", use_container_width=True):
-                st.session_state.page = "reflection"
-                st.rerun()
+# ==================== 页面2 前置问卷 ====================
+elif page == "pre_ques":
+    st.subheader("家长教养风格测评问卷")
+    ans_list = []
+    for idx, (que, _) in enumerate(QUESTIONNAIRE):
+        opt = st.radio(f"{idx+1}. {que}", [1,2,3,4], horizontal=True,
+                       format_func=lambda x:["完全不符合","不太符合","比较符合","完全符合"][x-1])
+        ans_list.append(opt)
+    if st.button("提交问卷，开启模拟", use_container_width=True):
+        score_dict = {"strict":0,"balanced":0,"gentle":0}
+        for a, (_, dim) in zip(ans_list, QUESTIONNAIRE):
+            score_dict[dim] += a
+        sort_res = sorted(score_dict.items(), key=lambda x:x[1], reverse=True)
+        if sort_res[1][1] >= sort_res[0][1]-1:
+            final_style = "balanced"
         else:
-            st.info(f"当前进度：{user.progress}%，请继续互动，进度达到100%才能完成任务")
+            final_style = sort_res[0][0]
+        user.parent_style = final_style
+        user.real_style = STYLE_NAMES[final_style]
+        user.pre_questionnaire = ans_list
+        user.reset_game()
+        st.success(f"判定完成，你的教养风格：{user.real_style}")
+        st.session_state.page_flag = "game_run"
+        st.rerun()
 
-    # 页面4：反思报告
-    elif current_page == "reflection":
-        st.title("📊 模拟体验反思报告")
-        st.info(f"实验编号：{user.participant_id} | 教养风格：{user.real_style}")
+# ==================== 页面3 游戏交互+对话+冲突显示 ====================
+elif page == "game_run":
+    st.subheader(f"作业辅导模拟 | 当前风格：{user.real_style}")
+    # 状态面板
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("专注度", f"{user.focus}%")
+    c1.progress(user.focus/100)
+    c2.metric("情绪值", f"{user.mood}%")
+    c2.progress(user.mood/100)
+    c3.metric("作业进度", f"{user.progress}%")
+    c3.progress(user.progress/100)
+    c4.metric("耐心值", f"{user.patience}%")
+    c4.progress(user.patience/100)
 
-        if user.game_records:
-            df = pd.DataFrame(user.game_records)
-            st.subheader("📈 状态变化趋势")
-            st.line_chart(df, y=["focus","mood","progress","patience"], use_container_width=True)
+    st.divider()
+    act_select = st.radio("孩子当前行为", ["做作业","休息","开小差","题目不会"], horizontal=True)
+    act_map = {"做作业":"homework","休息":"rest","开小差":"distract","题目不会":"cant_solve"}
 
-            st.subheader("📌 基础统计")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("总互动次数", len(user.game_records))
-            with col2:
-                st.metric("最低专注度", f"{min([60] + [x['focus'] for x in user.game_records])}%")
-            with col3:
-                st.metric("最低情绪值", f"{min([70] + [x['mood'] for x in user.game_records])}%")
+    if st.button("执行本次互动操作", type="primary", use_container_width=True):
+        user.action_update(act_map[act_select])
 
-            st.subheader("⚠️ 冲突统计")
-            conflict_list = [r["conflict"] for r in user.game_records if r["conflict"]]
-            if conflict_list:
-                conflict_counts = pd.Series(conflict_list).value_counts()
-                st.bar_chart(conflict_counts)
-            else:
-                st.write("本次模拟未发生任何冲突")
+    # 冲突提示（醒目红色警告）
+    if user.cur_conflict:
+        st.error(f"⚠️ 冲突发生！类型：{user.cur_conflict}")
 
-            st.subheader("🎯 行为分布")
-            action_counts = pd.Series([r["action"] for r in user.game_records]).value_counts()
-            st.bar_chart(action_counts)
+    # 对话展示
+    if user.cur_parent_talk:
+        st.divider()
+        st.chat_message("家长").write(user.cur_parent_talk)
+        st.chat_message("孩子").write(user.cur_child_talk)
 
-            st.subheader("💡 深度反思总结")
-            st.markdown(f"""
-            本次以**{user.real_style}**模式完成辅导模拟，互动过程中状态波动直观体现了教养方式的影响：
-            - **专制型**：易引发孩子情绪抵触，耐心值下降快，冲突发生率高
-            - **放任型**：孩子情绪稳定，但作业进度推进缓慢，规则意识弱
-            - **权威型**：能较好平衡孩子心态与任务推进，冲突最少
-
-            **核心发现：**
-            本次模拟中，你共触发 **{len(conflict_list)} 次冲突**，最低专注度降至 **{min([60] + [x['focus'] for x in user.game_records])}%**，情绪值最低降至 **{min([70] + [x['mood'] for x in user.game_records])}%**。
-            换位思考后，你能更直观地感受到不同沟通方式对孩子学习状态的影响，后续可优化沟通语气与边界设置，减少不必要的冲突。
-            """)
-
-        if st.button("前往后置体验问卷", use_container_width=True):
-            st.session_state.page = "after_survey"
+    # 只有进度到100%才解锁按钮
+    if user.progress >= 100:
+        st.balloons()
+        st.success("🎉 作业任务完成！")
+        if st.button("前往反思报告", use_container_width=True):
+            st.session_state.page_flag = "reflection"
             st.rerun()
+    else:
+        st.info(f"当前进度：{user.progress}%，请继续互动，进度达到100%才能完成任务")
 
-    # 页面5：后置问卷
-    elif current_page == "after_survey":
-        st.title("📋 后置体验问卷")
-        st.info("请结合本次模拟体验，回答以下问题，帮助我们改进实验")
-        answers = []
-        for idx, que in enumerate(AFTER_SURVEY_QUESTIONS):
-            ans = st.radio(f"Q{idx+1}: {que}", [1,2,3,4,5], horizontal=True,
-                           format_func=lambda x: ["非常不同意","不同意","一般","同意","非常同意"][x-1])
-            answers.append(ans)
+# ==================== 页面4 反思报告（增强版）======================
+elif page == "reflection":
+    st.title("📊 模拟体验反思报告")
+    st.info(f"实验编号：{user.participant_id} | 教养风格：{user.real_style}")
 
-        all_final_data = {
-            "基础信息":{
-                "实验编号":user.participant_id,
-                "判定教养风格":user.real_style
-            },
-            "前置问卷作答":user.pre_questionnaire,
-            "游戏全程操作数据":user.game_records,
-            "后置问卷作答":answers
-        }
+    # 1. 状态变化趋势
+    if user.game_records:
+        df = pd.DataFrame(user.game_records)
+        st.subheader("📈 状态变化趋势")
+        st.line_chart(df, y=["focus","mood","progress","patience"], use_container_width=True)
 
-        if st.button("提交问卷，生成全套数据文件", use_container_width=True, type="primary"):
-            user.after_questionnaire = answers
-            json_all = json.dumps(all_final_data, ensure_ascii=False, indent=3)
-            st.success("✅ 全部数据汇总完毕！")
-            st.download_button("💾 下载全套实验数据", json_all,
-                               file_name=f"全套数据_{user.participant_id}.json",
-                               mime="application/json", use_container_width=True)
+    # 2. 基础统计
+    st.subheader("📌 基础统计")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("总互动次数", len(user.game_records))
+    with col2:
+        st.metric("最低专注度", f"{min([60] + [x['focus'] for x in user.game_records])}%")
+    with col3:
+        st.metric("最低情绪值", f"{min([70] + [x['mood'] for x in user.game_records])}%")
 
-if __name__ == "__main__":
-    main()
+    # 3. 冲突统计
+    st.subheader("⚠️ 冲突统计")
+    conflict_list = [r["conflict"] for r in user.game_records if r["conflict"]]
+    if conflict_list:
+        conflict_counts = pd.Series(conflict_list).value_counts()
+        st.bar_chart(conflict_counts)
+    else:
+        st.write("本次模拟未发生任何冲突")
+
+    # 4. 行为分布
+    st.subheader("🎯 行为分布")
+    action_counts = pd.Series([r["action"] for r in user.game_records]).value_counts()
+    st.bar_chart(action_counts)
+
+    # 5. 深度反思总结
+    st.subheader("💡 深度反思总结")
+    st.markdown(f"""
+    本次以**{user.real_style}**模式完成辅导模拟，互动过程中状态波动直观体现了教养方式的影响：
+    - **专制型**：易引发孩子情绪抵触，耐心值下降快，冲突发生率高
+    - **放任型**：孩子情绪稳定，但作业进度推进缓慢，规则意识弱
+    - **权威型**：能较好平衡孩子心态与任务推进，冲突最少
+
+    **核心发现：**
+    本次模拟中，你共触发 **{len(conflict_list)} 次冲突**，最低专注度降至 **{min([60] + [x['focus'] for x in user.game_records])}%**，情绪值最低降至 **{min([70] + [x['mood'] for x in user.game_records])}%**。
+    换位思考后，你能更直观地感受到不同沟通方式对孩子学习状态的影响，后续可优化沟通语气与边界尺度，减少不必要的冲突。
+    """)
+
+    if st.button("前往后置体验问卷", use_container_width=True):
+        st.session_state.page_flag = "after_survey"
+        st.rerun()
+
+# ==================== 页面5 后置问卷（独立页面）====================
+elif page == "after_survey":
+    st.title("📋 后置体验问卷")
+    st.info("请结合本次模拟体验，回答以下问题，帮助我们改进实验")
+    answers = []
+    for idx, que in enumerate(AFTER_SURVEY_QUESTIONS):
+        ans = st.radio(f"Q{idx+1}: {que}", [1,2,3,4,5], horizontal=True,
+                       format_func=lambda x: ["非常不同意", "不同意", "一般", "同意", "非常同意"][x-1])
+        answers.append(ans)
+
+    # 整合全部数据
+    all_final_data = {
+        "基础信息":{
+            "实验编号":user.participant_id,
+            "判定教养风格":user.real_style
+        },
+        "前置问卷作答":user.pre_questionnaire,
+        "游戏全程操作数据":user.game_records,
+        "后置问卷作答":answers
+    }
+
+    if st.button("提交问卷，生成全套数据文件", use_container_width=True, type="primary"):
+        user.after_questionnaire = answers
+        json_all = json.dumps(all_final_data, ensure_ascii=False, indent=3)
+        st.success("✅ 全部数据汇总完毕！")
+        st.download_button("💾 下载全套实验数据", json_all,
+                           file_name=f"全套数据_{user.participant_id}.json",
+                           mime="application/json", use_container_width=True)
