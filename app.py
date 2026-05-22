@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ========== 气泡对话 CSS + 隐藏顶部 ==========
+# ========== 气泡对话 CSS + 全部靠左对齐 ==========
 st.markdown("""
 <style>
 header,
@@ -27,31 +27,28 @@ div[data-testid="stDecoration"],
     visibility: hidden !important;
 }
 
-/* 家长气泡（蓝色 右） */
+/* 统一靠左对齐气泡 */
+.chat-bubble {
+    background-color: #F1F1F1;
+    padding: 12px 18px;
+    border-radius: 18px;
+    margin: 4px 0;
+    max-width: 75%;
+    font-size: 15px;
+    text-align: left;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+/* 家长气泡颜色 */
 .parent-bubble {
     background-color: #E3F2FD;
-    padding: 12px 18px;
-    border-radius: 18px;
-    margin-left: auto;
-    margin-bottom: 8px;
-    max-width: 75%;
-    font-size: 15px;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 
-/* 孩子气泡（绿色 左） */
+/* 孩子气泡颜色 */
 .child-bubble {
     background-color: #E8F5E8;
-    padding: 12px 18px;
-    border-radius: 18px;
-    margin-right: auto;
-    margin-bottom: 8px;
-    max-width: 75%;
-    font-size: 15px;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 
-/* 对话标题 */
 .chat-title {
     font-size: 16px;
     font-weight: 600;
@@ -400,10 +397,10 @@ else:
         if user.cur_conflict:
             st.error(f"⚠️ 冲突：{user.cur_conflict}")
 
-        # ========== 气泡显示 ==========
+        # ========== 全部靠左对齐显示 ==========
         if user.cur_parent_talk:
-            st.markdown(f"<div class='parent-bubble'>👩 家长：{user.cur_parent_talk}</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='child-bubble'>🧒 孩子：{user.cur_child_talk}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='chat-bubble parent-bubble'>👩 家长：{user.cur_parent_talk}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='chat-bubble child-bubble'>🧒 孩子：{user.cur_child_talk}</div>", unsafe_allow_html=True)
 
         st.divider()
         st.markdown("### 🎮 互动操作")
