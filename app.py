@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ========== 彻底干掉顶部遮挡 CSS ==========
+# ========== 气泡对话 CSS + 隐藏顶部 ==========
 st.markdown("""
 <style>
 header,
@@ -27,35 +27,35 @@ div[data-testid="stDecoration"],
     visibility: hidden !important;
 }
 
-.appview-container .main .block-container,
-div[data-testid="stMainBlockContainer"] {
-    padding-top: 0rem !important;
-    padding-left: 1rem !important;
-    padding-right: 1rem !important;
-    padding-bottom: 1rem !important;
-    max-width: 100% !important;
+/* 家长气泡（蓝色 右） */
+.parent-bubble {
+    background-color: #E3F2FD;
+    padding: 12px 18px;
+    border-radius: 18px;
+    margin-left: auto;
+    margin-bottom: 8px;
+    max-width: 75%;
+    font-size: 15px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 
-.css-1d391kg,
-div[data-testid="stSidebar"] {
-    padding-top: 0rem !important;
+/* 孩子气泡（绿色 左） */
+.child-bubble {
+    background-color: #E8F5E8;
+    padding: 12px 18px;
+    border-radius: 18px;
+    margin-right: auto;
+    margin-bottom: 8px;
+    max-width: 75%;
+    font-size: 15px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 
-h1, h2, h3 {
-    white-space: nowrap !important;
-    overflow: visible !important;
-    margin-top: 0 !important;
-    padding-top: 0 !important;
-}
-
-@media (max-width: 768px) {
-    h1 { font-size: 20px !important; }
-    h2 { font-size: 18px !important; }
-    h3 { font-size: 16px !important; }
-    .stRadio > div {
-        flex-direction: column !important;
-        gap: 8px !important;
-    }
+/* 对话标题 */
+.chat-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 10px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -73,7 +73,7 @@ c.execute('''CREATE TABLE IF NOT EXISTS submissions
               timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
 conn.commit()
 
-# 【关键修复】save_submission 里的字段名，和 all_final_data 里的字段名必须完全一致
+# 保存数据
 def save_submission(data):
     c.execute("INSERT INTO submissions (experiment_id, real_style, pre_questionnaire, game_records, after_questionnaire) VALUES (?, ?, ?, ?, ?)",
               (data["基础信息"]["实验编号"],
@@ -222,11 +222,9 @@ class GameData:
         self.cur_child_talk = ""
         self.cur_conflict = ""
 
-        # 新增：连续行为计数器（用于行为冲突/学习冲突）
         self.continuous_distract = 0
         self.continuous_cant_solve = 0
 
-        # 保存原始风格数据（防止被覆盖）
         self.origin_style = ""
         self.origin_records = []
 
@@ -239,25 +237,16 @@ class GameData:
         self.cur_parent_talk = ""
         self.cur_child_talk = ""
         self.cur_conflict = ""
-        # 重置连续计数器
         self.continuous_distract = 0
         self.continuous_cant_solve = 0
 
     def get_conflict_status(self):
         conflict = []
-        # 原有三种冲突
         if self.focus < 30: conflict.append("专注冲突")
         if self.mood < 20: conflict.append("情绪冲突")
         if self.patience < 20: conflict.append("亲子冲突")
-        
-        # 新增：行为冲突（连续开小差≥3次）
-        if self.continuous_distract >= 3:
-            conflict.append("行为冲突")
-        
-        # 新增：学习冲突（连续题目不会≥2次）
-        if self.continuous_cant_solve >= 2:
-            conflict.append("学习冲突")
-            
+        if self.continuous_distract >= 3: conflict.append("行为冲突")
+        if self.continuous_cant_solve >= 2: conflict.append("学习冲突")
         return "、".join(conflict) if conflict else ""
 
     def action_update(self, act_key):
@@ -267,15 +256,13 @@ class GameData:
         self.patience = max(0, min(100, self.patience + d["patience"][self.parent_style]))
         self.progress = max(0, min(100, self.progress + d["progress"]))
 
-        # 更新连续行为计数器
         if act_key == "distract":
             self.continuous_distract += 1
-            self.continuous_cant_solve = 0  # 重置另一个
+            self.continuous_cant_solve = 0
         elif act_key == "cant_solve":
             self.continuous_cant_solve += 1
-            self.continuous_distract = 0    # 重置另一个
+            self.continuous_distract = 0
         else:
-            # 其他行为时，重置两个计数器
             self.continuous_distract = 0
             self.continuous_cant_solve = 0
 
@@ -285,7 +272,6 @@ class GameData:
         dialog = None
         if USE_LLM and LLM_PROVIDER == "zhipu":
             dialog = ai_generate_dialogue(self.parent_style, act_key, conflict_flag)
-
         if not dialog:
             dialog = get_local_dialogue(self.parent_style, act_key, conflict_flag)
 
@@ -315,11 +301,10 @@ if "admin_login" not in st.session_state:
 user = st.session_state.user_data
 page = st.session_state.page_flag
 
-# 侧边栏管理员入口
+# 侧边栏
 with st.sidebar:
     st.title("系统菜单")
     menu_choice = st.radio("功能选择", ["参与实验", "数据管理"])
-
     if menu_choice == "数据管理":
         if not st.session_state.admin_login:
             pwd = st.text_input("管理员密码", type="password")
@@ -335,13 +320,12 @@ with st.sidebar:
                 st.session_state.admin_login = False
                 st.rerun()
 
-# 数据管理页面
+# 数据后台
 if menu_choice == "数据管理":
     if st.session_state.admin_login:
         st.title("📊 实验数据管理后台")
         df = pd.read_sql("SELECT id, experiment_id, real_style, timestamp FROM submissions", conn)
         st.dataframe(df, use_container_width=True)
-
         if not df.empty:
             sel_id = st.selectbox("选择ID查看详情", df["id"].tolist())
             row = df[df["id"] == sel_id].iloc[0]
@@ -349,7 +333,6 @@ if menu_choice == "数据管理":
             st.write(f"实验编号：{row['experiment_id']}")
             st.write(f"教养风格：{row['real_style']}")
             st.write(f"提交时间：{row['timestamp']}")
-
             if st.button("查看完整数据"):
                 full_data = pd.read_sql(f"SELECT * FROM submissions WHERE id={sel_id}", conn).iloc[0]
                 st.json({
@@ -357,14 +340,13 @@ if menu_choice == "数据管理":
                     "游戏记录": json.loads(full_data["game_records"]),
                     "后置问卷": json.loads(full_data["after_questionnaire"])
                 })
-
         all_data = pd.read_sql("SELECT * FROM submissions", conn)
         st.download_button("导出全部CSV", all_data.to_csv(index=False, encoding="utf-8-sig"),
                            "全部实验数据.csv", "text/csv")
     else:
         st.info("请输入密码登录后方可查看数据")
 
-# 玩家实验流程
+# 实验流程
 else:
     if page == "input_id":
         st.title("👨‍👩‍👧 家庭教育视角互换实验")
@@ -390,8 +372,6 @@ else:
                 score_dict[dim] += a
             sort_res = sorted(score_dict.items(), key=lambda x:x[1], reverse=True)
             final_style = "balanced" if sort_res[1][1] >= sort_res[0][1]-1 else sort_res[0][0]
-            
-            # 保存原始风格
             user.origin_style = final_style
             user.parent_style = final_style
             user.real_style = STYLE_NAMES[final_style]
@@ -415,12 +395,15 @@ else:
         c4.progress(user.patience/100)
 
         st.divider()
-        st.markdown("### 💬 亲子对话")
+        st.markdown("<div class='chat-title'>💬 亲子对话</div>", unsafe_allow_html=True)
+
         if user.cur_conflict:
             st.error(f"⚠️ 冲突：{user.cur_conflict}")
+
+        # ========== 气泡显示 ==========
         if user.cur_parent_talk:
-            st.chat_message("家长", avatar="👩").write(user.cur_parent_talk)
-            st.chat_message("孩子", avatar="🧒").write(user.cur_child_talk)
+            st.markdown(f"<div class='parent-bubble'>👩 家长：{user.cur_parent_talk}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='child-bubble'>🧒 孩子：{user.cur_child_talk}</div>", unsafe_allow_html=True)
 
         st.divider()
         st.markdown("### 🎮 互动操作")
@@ -434,11 +417,8 @@ else:
         if user.progress >= 100:
             st.balloons()
             st.success("🎉 辅导任务完成")
-            
-            # 第一次完成：保存原始数据
             if not user.origin_records:
                 user.origin_records = user.game_records.copy()
-            
             if st.button("查看反思报告", use_container_width=True):
                 st.session_state.page_flag = "reflection"
                 st.rerun()
@@ -450,7 +430,6 @@ else:
         st.info(f"编号：{user.participant_id}")
         st.divider()
 
-        # 显示当前正在体验的风格数据
         if user.game_records:
             df = pd.DataFrame(user.game_records)
             st.subheader("📈 状态变化趋势")
@@ -476,7 +455,6 @@ else:
         action_counts = pd.Series([r["action"] for r in user.game_records]).value_counts()
         st.bar_chart(action_counts)
 
-        # 反思总结（保留数据解读和对比，启示按类型切换）
         st.subheader("💡 反思总结")
         style_name = user.real_style
         min_focus = min([60] + [x['focus'] for x in user.game_records])
@@ -494,28 +472,19 @@ else:
 
 ### 不同教养方式的特点对比
 - **专制型**：以指令和控制为主，效率高但易引发孩子抵触情绪，长期可能导致沟通不畅和亲子冲突。
-- **放任型**：以陪伴和包容为主，孩子情绪稳定但学习动力和效率可能偏低，需要更多外部引导。
-- **权威型**：兼顾规则与共情，在设定明确目标的同时给予孩子情绪支持，是被普遍认为最均衡、最有效的教养方式。
+- **放任型**：以陪伴和包容为主，孩子情绪稳定但学习动力和效率偏低，需要更多外部引导。
+- **权威型**：兼顾规则与共情，在设定明确目标的同时给予孩子情绪支持，是最均衡有效的教养方式。
 """)
 
-        # ===================== 仅这一段按类型切换 =====================
         st.subheader("本次体验的启示")
         if user.real_style == "专制型":
-            st.markdown("""
-通过本次视角互换，你以孩子的视角亲身体验了专制型教养方式带来的真实感受。过度的控制与严厉的要求，虽然能在短期内推动学习进度，却容易让孩子产生压抑、抵触与不安全感，长期会影响孩子的主动性与亲子间的信任关系。真正的教育不是命令与评判，而是尊重与倾听。希望你在未来的家庭教育中，适当减少强硬管控，多给予孩子理解、鼓励与表达的空间，用温和而坚定的方式陪伴孩子成长。
-""")
+            st.markdown("通过本次视角互换，你以孩子的视角亲身体验了专制型教养方式带来的真实感受。过度的控制与严厉的要求，虽然能在短期内推动学习进度，却容易让孩子产生压抑、抵触与不安全感，长期会影响孩子的主动性与亲子间的信任关系。真正的教育不是命令与评判，而是尊重与倾听。希望你在未来的家庭教育中，适当减少强硬管控，多给予孩子理解、鼓励与表达的空间，用温和而坚定的方式陪伴孩子成长。")
         elif user.real_style == "放任型":
-            st.markdown("""
-通过本次视角互换，你亲身体验了放任型教养方式下孩子的真实状态。过度的自由与包容虽然能让孩子保持情绪放松，但缺乏清晰的规则与适度的引导，容易让孩子缺乏方向感与学习动力，难以建立稳定的学习习惯。孩子的成长既需要温暖的陪伴，也需要合理的边界与目标指引。希望你在未来的教育中，在给予孩子空间的同时，适当增加规则意识与正向激励，让陪伴更有质量，让成长更有方向。
-""")
+            st.markdown("通过本次视角互换，你亲身体验了放任型教养方式下孩子的真实状态。过度的自由与包容虽然能让孩子保持情绪放松，但缺乏清晰的规则与适度的引导，容易让孩子缺乏方向感与学习动力，难以建立稳定的学习习惯。孩子的成长既需要温暖的陪伴，也需要合理的边界与目标指引。希望你在未来的教育中，在给予孩子空间的同时，适当增加规则意识与正向激励，让陪伴更有质量，让成长更有方向。")
         elif user.real_style == "权威型":
-            st.markdown("""
-通过本次视角互换，你亲身体验了权威型教养方式带给孩子的积极影响。这种方式既保有清晰的规则与目标，又充满理解与共情，让孩子在被尊重、被支持的环境中保持稳定的情绪与学习状态，是最有利于孩子长期成长的教养模式。权威型教养的核心是温和而坚定，是陪伴而非控制，是引导而非放任。希望你继续保持这种教育方式，用尊重建立信任，用沟通拉近关系，让孩子在温暖与规则中自信、从容地成长。
-""")
+            st.markdown("通过本次视角互换，你亲身体验了权威型教养方式带给孩子的积极影响。这种方式既保有清晰的规则与目标，又充满理解与共情，让孩子在被尊重、被支持的环境中保持稳定的情绪与学习状态，是最有利于孩子长期成长的教养模式。权威型教养的核心是温和而坚定，是陪伴而非控制，是引导而非放任。希望你继续保持这种教育方式，用尊重建立信任，用沟通拉近关系，让孩子在温暖与规则中自信、从容地成长。")
 
         st.divider()
-
-        # 两个按钮：填写问卷 / 重新体验权威型
         col1, col2 = st.columns(2)
         with col1:
             if st.button("填写后置问卷", use_container_width=True):
@@ -538,7 +507,6 @@ else:
                            format_func=lambda x: ["非常不同意", "不同意", "一般", "同意", "非常同意"][x-1])
             answers.append(ans)
 
-        # 【关键修复】字段名统一，和 save_submission 里的完全一致
         all_final_data = {
             "基础信息":{"实验编号":user.participant_id,"判定教养风格":user.real_style},
             "前置问卷作答":user.pre_questionnaire,
@@ -555,5 +523,4 @@ else:
                                file_name=f"全套数据_{user.participant_id}.json",
                                mime="application/json", use_container_width=True)
 
-# 关闭数据库连接
 conn.close()
