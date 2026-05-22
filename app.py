@@ -222,6 +222,10 @@ class GameData:
         self.cur_child_talk = ""
         self.cur_conflict = ""
 
+        # 新增：连续行为计数器（用于行为冲突/学习冲突）
+        self.continuous_distract = 0
+        self.continuous_cant_solve = 0
+
         # 保存原始风格数据（防止被覆盖）
         self.origin_style = ""
         self.origin_records = []
@@ -235,12 +239,25 @@ class GameData:
         self.cur_parent_talk = ""
         self.cur_child_talk = ""
         self.cur_conflict = ""
+        # 重置连续计数器
+        self.continuous_distract = 0
+        self.continuous_cant_solve = 0
 
     def get_conflict_status(self):
         conflict = []
+        # 原有三种冲突
         if self.focus < 30: conflict.append("专注冲突")
         if self.mood < 20: conflict.append("情绪冲突")
         if self.patience < 20: conflict.append("亲子冲突")
+        
+        # 新增：行为冲突（连续开小差≥3次）
+        if self.continuous_distract >= 3:
+            conflict.append("行为冲突")
+        
+        # 新增：学习冲突（连续题目不会≥2次）
+        if self.continuous_cant_solve >= 2:
+            conflict.append("学习冲突")
+            
         return "、".join(conflict) if conflict else ""
 
     def action_update(self, act_key):
@@ -249,6 +266,18 @@ class GameData:
         self.mood = max(0, min(100, self.mood + d["mood"]))
         self.patience = max(0, min(100, self.patience + d["patience"][self.parent_style]))
         self.progress = max(0, min(100, self.progress + d["progress"]))
+
+        # 更新连续行为计数器
+        if act_key == "distract":
+            self.continuous_distract += 1
+            self.continuous_cant_solve = 0  # 重置另一个
+        elif act_key == "cant_solve":
+            self.continuous_cant_solve += 1
+            self.continuous_distract = 0    # 重置另一个
+        else:
+            # 其他行为时，重置两个计数器
+            self.continuous_distract = 0
+            self.continuous_cant_solve = 0
 
         self.cur_conflict = self.get_conflict_status()
         conflict_flag = bool(self.cur_conflict)
